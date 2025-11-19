@@ -2,7 +2,13 @@ import json
 from pathlib import Path
 
 import encode_sat_from_components as encoder
-from run_weight_experiments import PENALTY_FIELDS, best_model_row, load_plans
+from run_weight_experiments import (
+    PENALTY_FIELDS,
+    ExperimentResult,
+    best_model_row,
+    load_plans,
+    summarize_experiments,
+)
 
 
 def test_load_plans_and_scaling(tmp_path: Path) -> None:
@@ -42,3 +48,23 @@ def test_best_model_row_picks_lowest_objective(tmp_path: Path) -> None:
     assert best is not None
     assert best["idx"] == "2"
     assert PENALTY_FIELDS[0] in {"n_CooldownPRI", "n_CooldownNON"}
+
+
+def test_summarize_experiments_prefers_low_penalties_and_evenness(tmp_path: Path) -> None:
+    try:
+        import matplotlib  # noqa: F401
+    except ImportError:
+        return
+
+    res = [
+        ExperimentResult("base", 0, None, {}, total_penalties=10, load_std=2.0, load_range=4.0),
+        ExperimentResult("penalty", 0, None, {}, total_penalties=5, load_std=3.0, load_range=5.0),
+        ExperimentResult("even", 0, None, {}, total_penalties=7, load_std=1.5, load_range=2.0),
+    ]
+
+    best_pen, best_even = summarize_experiments(res, tmp_path)
+    assert best_pen and best_pen.name == "penalty"
+    assert best_even and best_even.name == "even"
+
+    assert (tmp_path / "penalties_bar.png").exists()
+    assert (tmp_path / "load_evenness_bar.png").exists()

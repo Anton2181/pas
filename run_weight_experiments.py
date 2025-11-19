@@ -10,6 +10,7 @@ import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -41,6 +42,9 @@ class ExperimentResult:
     returncode: int
     objective: Optional[float]
     penalties: Dict[str, str]
+    total_penalties: Optional[int] = None
+    load_std: Optional[float] = None
+    load_range: Optional[float] = None
     note: str = ""
 
 
@@ -99,6 +103,38 @@ def best_model_row(models_summary: Path) -> Optional[dict]:
         return None
     rows = _load_csv(models_summary)
     return choose_best_model(rows)
+
+
+def compute_penalty_totals(model: dict) -> Optional[int]:
+    if not model:
+        return None
+    total = 0
+    for key in PENALTY_FIELDS:
+        val = model.get(key)
+        if val is None or val == "":
+            continue
+        try:
+            total += int(float(val))
+        except ValueError:
+            continue
+    return total
+
+
+def load_evenness(loads_path: Path) -> tuple[Optional[float], Optional[float]]:
+    if not loads_path.exists():
+        return None, None
+    rows = _load_csv(loads_path)
+    totals: List[float] = []
+    for row in rows:
+        try:
+            totals.append(float(row.get("TotalLoad", 0.0)))
+        except ValueError:
+            continue
+    if not totals:
+        return None, None
+    mean = sum(totals) / len(totals)
+    variance = sum((v - mean) ** 2 for v in totals) / len(totals)
+    return math.sqrt(variance), max(totals) - min(totals)
 
 
 def run_single(plan: Experiment, base_cfg: dict, args: argparse.Namespace) -> ExperimentResult:
@@ -175,6 +211,9 @@ def run_single(plan: Experiment, base_cfg: dict, args: argparse.Namespace) -> Ex
     model = best_model_row(models_summary)
     penalties: Dict[str, str] = {}
     objective: Optional[float] = None
+    total_penalties: Optional[int] = None
+    load_std: Optional[float] = None
+    load_range: Optional[float] = None
     if model:
         for key in PENALTY_FIELDS:
             if key in model:
@@ -184,7 +223,64 @@ def run_single(plan: Experiment, base_cfg: dict, args: argparse.Namespace) -> Ex
                 objective = float(model["objective"])
             except ValueError:
                 objective = None
-    return ExperimentResult(plan.name, proc.returncode, objective, penalties)
+        total_penalties = compute_penalty_totals(model)
+        load_std, load_range = load_evenness(loads_out)
+    return ExperimentResult(
+        plan.name,
+        proc.returncode,
+        objective,
+        penalties,
+        total_penalties=total_penalties,
+        load_std=load_std,
+        load_range=load_range,
+    )
+
+
+def summarize_experiments(results: List[ExperimentResult], out_dir: Path) -> tuple[Optional[ExperimentResult], Optional[ExperimentResult]]:
+    best_penalty = None
+    for res in results:
+        if res.total_penalties is None:
+            continue
+        if best_penalty is None or res.total_penalties < best_penalty.total_penalties:
+            best_penalty = res
+
+    best_even = None
+    for res in results:
+        if res.load_std is None:
+            continue
+        if best_even is None or res.load_std < best_even.load_std:
+            best_even = res
+
+    try:  # pragma: no cover - optional plotting dependency
+        import matplotlib.pyplot as plt
+
+        names = [r.name for r in results if r.total_penalties is not None]
+        totals = [r.total_penalties for r in results if r.total_penalties is not None]
+        if names and totals:
+            plt.figure(figsize=(10, 5))
+            plt.bar(names, totals, color="#4c72b0")
+            plt.xticks(rotation=20, ha="right")
+            plt.ylabel("Total penalties")
+            plt.title("Penalty counts per experiment")
+            plt.tight_layout()
+            plt.savefig(out_dir / "penalties_bar.png", dpi=150)
+            plt.close()
+
+        names_std = [r.name for r in results if r.load_std is not None]
+        stds = [r.load_std for r in results if r.load_std is not None]
+        if names_std and stds:
+            plt.figure(figsize=(10, 5))
+            plt.bar(names_std, stds, color="#55a868")
+            plt.xticks(rotation=20, ha="right")
+            plt.ylabel("Load std dev (TotalLoad)")
+            plt.title("Load evenness per experiment")
+            plt.tight_layout()
+            plt.savefig(out_dir / "load_evenness_bar.png", dpi=150)
+            plt.close()
+    except ImportError:
+        pass
+
+    return best_penalty, best_even
 
 
 def main() -> None:
@@ -199,14 +295,31 @@ def main() -> None:
         for fut in as_completed(futures):
             results.append(fut.result())
 
-    print("name,returncode,objective," + ",".join(PENALTY_FIELDS))
+    print("name,returncode,objective,total_penalties,load_std,load_range," + ",".join(PENALTY_FIELDS))
     for res in sorted(results, key=lambda r: r.name):
         penalty_values = [res.penalties.get(key, "") for key in PENALTY_FIELDS]
         objective = "" if res.objective is None else res.objective
-        row = [res.name, str(res.returncode), str(objective)] + penalty_values
+        row = [
+            res.name,
+            str(res.returncode),
+            str(objective),
+            "" if res.total_penalties is None else str(res.total_penalties),
+            "" if res.load_std is None else f"{res.load_std:.6f}",
+            "" if res.load_range is None else f"{res.load_range:.6f}",
+        ] + penalty_values
         print(",".join(row))
         if res.note:
             print(f"# {res.name}: {res.note}")
+
+    best_penalty, best_even = summarize_experiments(results, args.out_dir)
+    if best_penalty:
+        print(
+            f"# Lowest total penalties: {best_penalty.name} (total={best_penalty.total_penalties})"
+        )
+    if best_even:
+        print(
+            f"# Most even load (std dev): {best_even.name} (std={best_even.load_std:.3f}, range={best_even.load_range:.3f})"
+        )
 
 
 if __name__ == "__main__":
