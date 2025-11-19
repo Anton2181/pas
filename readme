@@ -32,7 +32,7 @@ python3 -m pip install -r requirements-dev.txt
 6. `python3 report_assignments.py`
    - Consumes `assigned_optimal.csv` plus the base `components_all.csv` snapshot and writes `reports/assignment_report.csv` and `reports/assignment_report.txt`. The report lists per-person totals, priority versus non-priority splits, repeat-heavy families, and whether each person had access to a priority slot but failed to receive one. Re-run it every time you regenerate assignments so you can track whether fairness tweaks are spreading the load.
 7. `python3 run_weight_experiments.py --plans plans.json`
-   - Optional parallel harness that spawns multiple encode + solve cycles with different weight overrides. Each plan writes its own artifacts under `experiments/<plan>/` and the script prints a CSV summary comparing objectives and penalty counts, making it easy to see which weight mix reduces penalties.
+   - Optional parallel harness that spawns multiple encode + solve cycles with different weight overrides. Each plan writes its own artifacts under `experiments/<plan>/` and the script prints a CSV summary comparing objectives and penalty counts, making it easy to see which weight mix reduces penalties. The repo ships with a curated `plans.json` that tries cooldown relief, repeat caps, priority-push, fairness tweaks, stricter two-day handling, and availability scaling so you can start exploring without hand-crafting scenarios.
 
 ## Script inputs and generated artifacts
 

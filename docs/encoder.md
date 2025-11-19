@@ -66,7 +66,15 @@ python3 run_solver.py --opb schedule.opb --metric effort --log logs/solver.log
 - Use `--skip-consume` if you only want the solver output, or change `--metric` when you want the fairness charts to be based on task count vs. effort.
 - When the timeout fires before SAT4J emits a `v ...` assignment, the wrapper first issues `SIGINT` to request the best-so-far model, waits `--interrupt-grace` seconds (10s default), and only then force-kills the solver. Regardless of whether a model arrives, the log is preserved and the previous CSVs stay untouched so you can rerun with a longer limit.
 - Follow up with `python3 summarize_results.py` to print the headline objective, penalty counts, and load extremes pulled from the refreshed CSVs. This keeps "what's our current best?" checks to a single command.
-- Use `python3 run_weight_experiments.py --plans plans.json` when you want to try multiple weight tweaks in parallel. Each plan writes artifacts under `experiments/<plan>/` and the script prints a CSV comparison (objective + penalty counts) so you can quickly tell which mix helps most.
+- Use `python3 run_weight_experiments.py --plans plans.json` when you want to try multiple weight tweaks in parallel. Each plan writes artifacts under `experiments/<plan>/` and the script prints a CSV comparison (objective + penalty counts) so you can quickly tell which mix helps most. The repository ships with a starter `plans.json` that exercises common axes:
+  - `baseline`: control run with default weights.
+  - `cooldown_relief`, `repeat_relief`, `repeat_strict`: relax or harden the Tier-1/Tier-2 ladders.
+  - `priority_push`: amplifies priority coverage and the priority-miss guard.
+  - `fairness_stronger` / `fairness_relaxed`: move Tier-6 up or down.
+  - `two_day_strict`: turn two-day softening off entirely.
+  - `both_costly`: make “Both” fallbacks rarer.
+  - `cooldown_priority_only`: enforce hard cooldowns for priority families while loosening non-priority streaks.
+  - `availability_clamped`: tighten the availability-based fairness scaling window.
 
 ## Verifying rule combinations
 
