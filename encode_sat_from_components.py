@@ -299,14 +299,24 @@ class FamilyRegistry:
 
     path: Path
     mapping: Dict[str, str] = field(default_factory=dict)
+    components: Dict[str, Set[str]] = field(default_factory=dict)
+    order: List[str] = field(default_factory=list)
+
+    @staticmethod
+    def _parse_components(raw: str | None) -> Set[str]:
+        if not raw:
+            return set()
+        return {c for c in (piece.strip() for piece in raw.split(";")) if c}
 
     def load(self) -> None:
         self.mapping = {}
+        self.components = {}
+        self.order = []
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             with self.path.open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.writer(handle)
-                writer.writerow(["CanonicalFamily", "Alias"])
+                writer.writerow(["CanonicalFamily", "Alias", "Components"])
             return
 
         with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -314,9 +324,17 @@ class FamilyRegistry:
             if reader.fieldnames:
                 for row in reader:
                     fam = trim(row.get("CanonicalFamily") or row.get("Family") or row.get(reader.fieldnames[0]) or "")
-                    alias = trim(row.get("Alias") or row.get("Label") or (row.get(reader.fieldnames[1]) if len(reader.fieldnames) > 1 else ""))
+                    alias = trim(
+                        row.get("Alias")
+                        or row.get("Label")
+                        or (row.get(reader.fieldnames[1]) if len(reader.fieldnames) > 1 else "")
+                    )
+                    comps_raw = row.get("Components") if "Components" in (reader.fieldnames or []) else None
+                    comps = self._parse_components(comps_raw)
                     if fam:
+                        self.order.append(fam)
                         self.mapping[fam] = alias
+                        self.components[fam] = comps
                 return
 
         # Fallback to raw rows if headers were removed manually
@@ -328,26 +346,41 @@ class FamilyRegistry:
                 if not fam or fam.lower() == "canonicalfamily":
                     continue
                 alias = trim(row[1]) if len(row) > 1 else ""
+                comps = self._parse_components(row[2] if len(row) > 2 else "")
+                self.order.append(fam)
                 self.mapping[fam] = alias
+                self.components[fam] = comps
 
-    def sync(self, families_in_order: Iterable[str]) -> None:
+    def sync(self, families_in_order: Iterable[str], fam_components: Dict[str, Set[str]] | None = None) -> None:
+        fam_components = fam_components or {}
         seen_new: Set[str] = set()
-        append_rows: List[str] = []
         for fam in families_in_order:
             fam_trim = trim(fam)
             if not fam_trim:
                 continue
-            if fam_trim in self.mapping or fam_trim in seen_new:
+            if fam_trim not in self.order:
+                self.order.append(fam_trim)
+            if fam_trim not in self.mapping:
+                self.mapping[fam_trim] = ""
+            if fam_trim in seen_new:
                 continue
             seen_new.add(fam_trim)
-            append_rows.append(fam_trim)
-        if not append_rows:
-            return
-        with self.path.open("a", encoding="utf-8", newline="") as handle:
+        for fam, comps in fam_components.items():
+            fam_trim = trim(fam)
+            if not fam_trim:
+                continue
+            merged = self.components.get(fam_trim, set()) | {c for c in comps if c}
+            self.components[fam_trim] = merged
+
+        with self.path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
-            for fam in append_rows:
-                writer.writerow([fam, ""])
-                self.mapping[fam] = ""
+            writer.writerow(["CanonicalFamily", "Alias", "Components"])
+            for fam in self.order:
+                writer.writerow([
+                    fam,
+                    trim(self.mapping.get(fam, "")),
+                    ";".join(sorted(self.components.get(fam, set()))),
+                ])
 
     def label(self, fam: str) -> str:
         alias = trim(self.mapping.get(fam, ""))
@@ -768,6 +801,8 @@ def _encode(args):
     family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.csv"))))
     family_registry.load()
 
+    family_components: Dict[str, Set[str]] = defaultdict(set)
+
     def ordered_family_tokens() -> List[str]:
         order: List[str] = []
         seen: Set[str] = set()
@@ -775,14 +810,17 @@ def _encode(args):
             fams = comp.sibling_key if comp.sibling_key else (comp.cid,)
             for fam in fams:
                 fam_trim = trim(fam)
-                if not fam_trim or fam_trim in seen:
+                if not fam_trim:
+                    continue
+                family_components[fam_trim].add(comp.cid)
+                if fam_trim in seen:
                     continue
                 seen.add(fam_trim)
                 order.append(fam_trim)
         return order
 
     family_tokens = ordered_family_tokens()
-    family_registry.sync(family_tokens)
+    family_registry.sync(family_tokens, family_components)
     family_labels = {fam: family_registry.label(fam) for fam in family_tokens}
 
     def fam_label(name: str) -> str:
