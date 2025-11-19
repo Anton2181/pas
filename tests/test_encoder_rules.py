@@ -432,8 +432,9 @@ def test_assignment_report(tmp_path: Path) -> None:
     assert len(rows) == 2
     alex = next(row for row in rows if row["Person"] == "Alex")
     blair = next(row for row in rows if row["Person"] == "Blair")
-    assert int(alex["RepeatAssignments"]) == 1
-    assert alex["RepeatFamilies"] == "Fam"
+    # Single-candidate or manually fixed slots should not count toward repeat tallies.
+    assert int(alex["RepeatAssignments"]) == 0
+    assert alex["RepeatFamilies"] == ""
     assert alex["ReceivedPriority"] == "YES"
     assert blair["ReceivedPriority"] == "NO"
     assert blair["CouldHavePriority"] == "YES"

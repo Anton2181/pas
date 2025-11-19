@@ -31,6 +31,24 @@ def load_components(path: Path) -> List[Dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def build_component_lookup(rows: Iterable[Dict[str, str]]) -> Dict[str, Dict[str, object]]:
+    lookup: Dict[str, Dict[str, object]] = {}
+    for row in rows:
+        cid = (row.get("ComponentId") or "").strip()
+        if not cid:
+            continue
+        candidate_count = 0
+        try:
+            candidate_count = int(row.get("Candidate Count", 0))
+        except (TypeError, ValueError):
+            candidate_count = 0
+        lookup[cid] = {
+            "candidate_count": candidate_count,
+            "manual": (row.get("Assigned?") or "").strip().upper() == "YES",
+        }
+    return lookup
+
+
 def normalize_people(value: str) -> List[str]:
     if not value:
         return []
@@ -75,7 +93,11 @@ def load_assignments(path: Path) -> List[Dict[str, str]]:
     return rows
 
 
-def build_report(assignments: List[Dict[str, str]], priority_slots: Dict[str, int]) -> List[Dict[str, str]]:
+def build_report(
+    assignments: List[Dict[str, str]],
+    priority_slots: Dict[str, int],
+    component_meta: Dict[str, Dict[str, object]],
+) -> List[Dict[str, str]]:
     by_person: Dict[str, List[Dict[str, str]]] = defaultdict(list)
     for row in assignments:
         person = (row.get("Assigned To") or "").strip()
@@ -91,8 +113,15 @@ def build_report(assignments: List[Dict[str, str]], priority_slots: Dict[str, in
         family_counts: Dict[str, int] = defaultdict(int)
         for row in rows:
             fam = extract_family(row)
-            if fam:
-                family_counts[fam] += 1
+            if not fam:
+                continue
+            meta = component_meta.get((row.get("ComponentId") or "").strip(), {})
+            candidate_count = int(meta.get("candidate_count") or 0)
+            is_manual = bool(meta.get("manual", False))
+            # Do not count repeats that were effectively fixed upfront (manual or only one possible person).
+            if is_manual or candidate_count <= 1:
+                continue
+            family_counts[fam] += 1
         repeats = sum(max(0, count - 1) for count in family_counts.values())
         repeat_families = sorted(fam for fam, count in family_counts.items() if count > 1)
         eligible_priority = priority_slots.get(person, 0)
@@ -147,9 +176,10 @@ def write_summary(rows: List[Dict[str, str]], path: Path) -> None:
 def main() -> None:
     args = parse_args()
     components = load_components(args.components)
+    component_meta = build_component_lookup(components)
     priority_slots = collect_priority_eligibility(components)
     assignments = load_assignments(args.assigned)
-    rows = build_report(assignments, priority_slots)
+    rows = build_report(assignments, priority_slots, component_meta)
     write_report(rows, args.out)
     write_summary(rows, args.summary)
     print(f"Wrote report to {args.out}")

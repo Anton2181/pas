@@ -1771,7 +1771,18 @@ def _encode(args):
                 priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::FAMILY::person={p}::family={fam}"
 
     # Objective and dump
-    pb.set_objective(penalties)
+    deduped_penalties: List[Tuple[int, str]] = []
+    seen_penalties = set()
+    duplicate_penalties_dropped = 0
+    for weight, var in penalties:
+        key = (weight, var)
+        if key in seen_penalties:
+            duplicate_penalties_dropped += 1
+            continue
+        seen_penalties.add(key)
+        deduped_penalties.append((weight, var))
+
+    pb.set_objective(deduped_penalties)
     pb.dump(args.out)
 
     # Map / debug
@@ -1828,6 +1839,7 @@ def _encode(args):
         f"People: {len(people)}",
         f"Components: {len(comps)}",
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
+        f"Duplicate penalties dropped: {duplicate_penalties_dropped}",
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
