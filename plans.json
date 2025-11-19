@@ -1,110 +1,290 @@
 [
   {
-    "name": "baseline",
-    "overrides": {},
-    "scales": {}
-  },
-  {
-    "name": "cooldown_relief",
-    "scales": {
-      "W1_COOLDOWN": 0.5,
-      "W1_COOLDOWN_INTRA": 0.5,
-      "W1_STREAK": 0.6,
-      "W2_COOLDOWN": 0.5,
-      "W2_COOLDOWN_INTRA": 0.5,
-      "W2_STREAK": 0.6
-    },
-    "overrides": {}
-  },
-  {
-    "name": "repeat_relief",
-    "scales": {
-      "W1_REPEAT": 0.5,
-      "W2_REPEAT": 0.5
-    },
-    "overrides": {}
-  },
-  {
-    "name": "repeat_strict",
-    "scales": {
-      "W1_REPEAT": 1.5,
-      "W2_REPEAT": 1.5
-    },
-    "overrides": {}
-  },
-  {
-    "name": "priority_push",
-    "scales": {
-      "T1C": 1.5,
-      "T2C": 1.25,
-      "W_PRIORITY_MISS": 2.0
-    },
-    "overrides": {}
-  },
-  {
-    "name": "fairness_stronger",
-    "scales": {},
+    "name": "baseline_full",
     "overrides": {
       "WEIGHTS": {
-        "W6_OVER": 3,
-        "W6_UNDER": 7
-      }
-    }
-  },
-  {
-    "name": "fairness_relaxed",
-    "scales": {},
-    "overrides": {
-      "WEIGHTS": {
-        "W6_OVER": 1,
-        "W6_UNDER": 3
-      }
-    }
-  },
-  {
-    "name": "two_day_strict",
-    "scales": {},
-    "overrides": {
-      "SUNDAY_TWO_DAY_SOFT": false,
-      "TWO_DAY_SOFT_ALL": false,
-      "WEIGHTS": {
-        "W_SUNDAY_TWO_DAY": 0,
-        "W_TWO_DAY_SOFT": 0
-      }
-    }
-  },
-  {
-    "name": "both_costly",
-    "scales": {
-      "W4": 2.0,
-      "W4_DPR": 2.0
-    },
-    "overrides": {}
-  },
-  {
-    "name": "cooldown_priority_only",
-    "scales": {
-      "W2_COOLDOWN": 0.7,
-      "W2_STREAK": 0.7
-    },
-    "overrides": {
-      "PRIORITY_COOLDOWN_HARD": true,
-      "NONPRIORITY_COOLDOWN_HARD": false
-    }
-  },
-  {
-    "name": "availability_clamped",
-    "scales": {},
-    "overrides": {
-      "WEIGHTS": {
+        "W1_COOLDOWN": 1000000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 25000000000000000,
+        "W_PRIORITY_MISS": 3000000000,
+        "W1_COOLDOWN_INTRA": 10000000000000000000,
+        "W2_COOLDOWN_INTRA": 500000000000000,
+        "W2_COOLDOWN": 500000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 12500000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
         "FAIRNESS_AVAILABILITY": {
           "ENABLED": true,
           "REFERENCE": "auto",
-          "MIN_RATIO": 0.5,
-          "MAX_RATIO": 1.5,
-          "POWER": 0.6
-        }
-      }
-    }
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1000000000,
+        "T2C": 500000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
+  },
+  {
+    "name": "priority_heavy",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 1000000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 25000000000000000,
+        "W_PRIORITY_MISS": 6000000000,
+        "W1_COOLDOWN_INTRA": 10000000000000000000,
+        "W2_COOLDOWN_INTRA": 500000000000000,
+        "W2_COOLDOWN": 500000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 12500000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1800000000,
+        "T2C": 900000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
+  },
+  {
+    "name": "priority_light",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 1000000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 25000000000000000,
+        "W_PRIORITY_MISS": 1500000000,
+        "W1_COOLDOWN_INTRA": 10000000000000000000,
+        "W2_COOLDOWN_INTRA": 500000000000000,
+        "W2_COOLDOWN": 500000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 12500000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 700000000,
+        "T2C": 300000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
+  },
+  {
+    "name": "cooldown_soft",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 700000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 20000000000000000,
+        "W_PRIORITY_MISS": 3000000000,
+        "W1_COOLDOWN_INTRA": 7000000000000000000,
+        "W2_COOLDOWN_INTRA": 350000000000000,
+        "W2_COOLDOWN": 350000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 9000000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1000000000,
+        "T2C": 500000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
+  },
+  {
+    "name": "cooldown_strict",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 1400000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 30000000000000000,
+        "W_PRIORITY_MISS": 3000000000,
+        "W1_COOLDOWN_INTRA": 14000000000000000000,
+        "W2_COOLDOWN_INTRA": 700000000000000,
+        "W2_COOLDOWN": 700000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 15000000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1000000000,
+        "T2C": 500000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
+  },
+  {
+    "name": "fairness_push",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 1000000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 25000000000000000,
+        "W_PRIORITY_MISS": 3000000000,
+        "W1_COOLDOWN_INTRA": 10000000000000000000,
+        "W2_COOLDOWN_INTRA": 500000000000000,
+        "W2_COOLDOWN": 500000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 12500000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 4,
+        "W6_UNDER": 8,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1000000000,
+        "T2C": 500000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
+  },
+  {
+    "name": "two_day_hard",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 1000000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 25000000000000000,
+        "W_PRIORITY_MISS": 3000000000,
+        "W1_COOLDOWN_INTRA": 10000000000000000000,
+        "W2_COOLDOWN_INTRA": 500000000000000,
+        "W2_COOLDOWN": 500000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 12500000000000000,
+        "W4": 10000000000000,
+        "W3": 250000,
+        "W4_DPR": 250000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1000000000,
+        "T2C": 500000000,
+        "W_SUNDAY_TWO_DAY": 5000000000,
+        "W_TWO_DAY_SOFT": 5000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": false,
+      "TWO_DAY_SOFT_ALL": false
+    },
+    "scales": {}
+  },
+  {
+    "name": "both_cost_sensitive",
+    "overrides": {
+      "WEIGHTS": {
+        "W1_COOLDOWN": 1000000000000000,
+        "W1_REPEAT": 5000000000000000,
+        "W1_STREAK": 25000000000000000,
+        "W_PRIORITY_MISS": 3000000000,
+        "W1_COOLDOWN_INTRA": 10000000000000000000,
+        "W2_COOLDOWN_INTRA": 500000000000000,
+        "W2_COOLDOWN": 500000000000000,
+        "W2_REPEAT": 2500000000000000,
+        "W2_STREAK": 12500000000000000,
+        "W4": 20000000000000,
+        "W3": 250000,
+        "W4_DPR": 500000000000,
+        "W5": 250,
+        "W6_OVER": 2,
+        "W6_UNDER": 5,
+        "FAIRNESS_AVAILABILITY": {
+          "ENABLED": true,
+          "REFERENCE": "auto",
+          "MIN_RATIO": 0.35,
+          "MAX_RATIO": 1.85,
+          "POWER": 0.75
+        },
+        "T1C": 1000000000,
+        "T2C": 500000000,
+        "W_SUNDAY_TWO_DAY": 1500000000,
+        "W_TWO_DAY_SOFT": 2000000000
+      },
+      "SUNDAY_TWO_DAY_SOFT": true,
+      "TWO_DAY_SOFT_ALL": true
+    },
+    "scales": {}
   }
 ]

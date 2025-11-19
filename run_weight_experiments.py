@@ -251,34 +251,48 @@ def summarize_experiments(results: List[ExperimentResult], out_dir: Path) -> tup
         if best_even is None or res.load_std < best_even.load_std:
             best_even = res
 
-    try:  # pragma: no cover - optional plotting dependency
-        import matplotlib.pyplot as plt
+    def _plot_or_placeholder(path: Path, names: list[str], values: list[float], title: str, ylabel: str, color: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:  # pragma: no cover - optional plotting dependency
+            import matplotlib.pyplot as plt
 
-        names = [r.name for r in results if r.total_penalties is not None]
-        totals = [r.total_penalties for r in results if r.total_penalties is not None]
-        if names and totals:
             plt.figure(figsize=(10, 5))
-            plt.bar(names, totals, color="#4c72b0")
-            plt.xticks(rotation=20, ha="right")
-            plt.ylabel("Total penalties")
-            plt.title("Penalty counts per experiment")
+            if names and values:
+                plt.bar(names, values, color=color)
+                plt.xticks(rotation=20, ha="right")
+            else:
+                plt.text(0.5, 0.5, "No data available", ha="center", va="center", fontsize=12)
+                plt.xlim(0, 1)
+                plt.ylim(0, 1)
+            plt.ylabel(ylabel)
+            plt.title(title)
             plt.tight_layout()
-            plt.savefig(out_dir / "penalties_bar.png", dpi=150)
+            plt.savefig(path, dpi=150)
             plt.close()
+        except ImportError:
+            return
 
-        names_std = [r.name for r in results if r.load_std is not None]
-        stds = [r.load_std for r in results if r.load_std is not None]
-        if names_std and stds:
-            plt.figure(figsize=(10, 5))
-            plt.bar(names_std, stds, color="#55a868")
-            plt.xticks(rotation=20, ha="right")
-            plt.ylabel("Load std dev (TotalLoad)")
-            plt.title("Load evenness per experiment")
-            plt.tight_layout()
-            plt.savefig(out_dir / "load_evenness_bar.png", dpi=150)
-            plt.close()
-    except ImportError:
-        pass
+    penalty_chart = out_dir / "penalties_bar.png"
+    _plot_or_placeholder(
+        penalty_chart,
+        [r.name for r in results if r.total_penalties is not None],
+        [r.total_penalties for r in results if r.total_penalties is not None],
+        "Penalty counts per experiment",
+        "Total penalties",
+        "#4c72b0",
+    )
+
+    evenness_chart = out_dir / "load_evenness_bar.png"
+    _plot_or_placeholder(
+        evenness_chart,
+        [r.name for r in results if r.load_std is not None],
+        [r.load_std for r in results if r.load_std is not None],
+        "Load evenness per experiment",
+        "Load std dev (TotalLoad)",
+        "#55a868",
+    )
+
+    print(f"# Summary charts: penalties -> {penalty_chart}, evenness -> {evenness_chart}")
 
     return best_penalty, best_even
 
