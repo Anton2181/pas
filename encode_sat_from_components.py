@@ -88,44 +88,44 @@ CONFIG = {
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- PRIORITY (Tier 1) ---
-        "W1_COOLDOWN": 1_000_000_000_000_000_000,  # PRI cooldown ladder base (per counted violation step)
-        "W1_REPEAT": 10 * 1_000_000_000_000_000_000,  # PRI repeat-over ladder base (above per-family limit)
-        "W1_STREAK": 100 * 1_000_000_000_000_000_000,  # PRI cooldown streak (back-to-back weeks in same family)
+        "W1_COOLDOWN": 1_000_000_000_000_000,  # PRI cooldown ladder base (per counted violation step)
+        "W1_REPEAT": 5 * 1_000_000_000_000_000,  # PRI repeat-over ladder base (above per-family limit)
+        "W1_STREAK": 25 * 1_000_000_000_000_000,  # PRI cooldown streak (back-to-back weeks in same family)
 
-        "W1_COOLDOWN_INTRA": 1_000_000_000_000_000_000_000,  # default = W1_COOLDOWN
-        "W2_COOLDOWN_INTRA": 1_000_000_000_000_000_000,      # default = W2_COOLDOWN
+        "W1_COOLDOWN_INTRA": 10_000_000_000_000_000_000,  # default = W1_COOLDOWN
+        "W2_COOLDOWN_INTRA": 500_000_000_000_000,      # default = W2_COOLDOWN
 
         # --- NON-PRIORITY (Tier 2) ---
-        "W2_COOLDOWN": 1_000_000_000_000_000_000,  # NON-PRI cooldown ladder base
-        "W2_REPEAT": 10 * 1_000_000_000_000_000_000,  # NON-PRI repeat-over ladder base
-        "W2_STREAK": 100 * 1_000_000_000_000_000_000,  # NON-PRI cooldown streak (back-to-back weeks)
+        "W2_COOLDOWN": 500_000_000_000_000,  # NON-PRI cooldown ladder base
+        "W2_REPEAT": 2_500_000_000_000_000,  # NON-PRI repeat-over ladder base
+        "W2_STREAK": 12_500_000_000_000_000,  # NON-PRI cooldown streak (back-to-back weeks)
 
-        "W4": 100 * 1_000_000_000_000,  # Penalty for using “Both” expansion assignment
+        "W4": 10 * 1_000_000_000_000,  # Penalty for using “Both” expansion assignment
 
         # --- Tier 3: same-day “fill to 2” nudger on manual-only days when ≥2 is expected ---
-        "W3": 1_000_000,  # Encourage ≥2 tasks for a person/day when a manual-only day would be thin
+        "W3": 250_000,  # Encourage ≥2 tasks for a person/day when a manual-only day would be thin
 
         # --- Tier 4: “Both” fallback + deprioritized pair (same-day) ---
-        "W4_DPR": 1_000_000_000_000,  # Soft cost for taking two tasks that form a deprioritized pair on same (week,day)
+        "W4_DPR": 250_000_000_000,  # Soft cost for taking two tasks that form a deprioritized pair on same (week,day)
 
         # --- Tier 5: preferred-pair miss (per feasible unordered pair count) ---
-        "W5": 1_000,  # Penalize when a feasible preferred pair is not realized
+        "W5": 250,  # Penalize when a feasible preferred pair is not realized
 
         # --- Tier 6: across-horizon fairness (convex ladders) ---
-        "W6_OVER": 1,  # Over-load ladder base multiplier
-        "W6_UNDER": 3,  # Under-load ladder base multiplier
+        "W6_OVER": 2,  # Over-load ladder base multiplier
+        "W6_UNDER": 5,  # Under-load ladder base multiplier
 
         # Fairness (Tier-6) dials
-        "FAIR_MEAN_MULTIPLIER": 1,  # multiply the computed global mean before building fairness ladders
-        "FAIR_OVER_START_DELTA": 0,  # integer offset added to the (possibly scaled) mean for OVER thresholds
+        "FAIR_MEAN_MULTIPLIER": 0.9,  # multiply the computed global mean before building fairness ladders
+        "FAIR_OVER_START_DELTA": 2,  # integer offset added to the (possibly scaled) mean for OVER thresholds
 
         # --- Priority coverage pressure ---
-        "T1C": 1_000_000_000,  # Encourage wide coverage of TOP-priority tasks
-        "T2C": 10_000_000,  # Encourage SECOND-priority, gated by not already TOP
+        "T1C": 100_000_000,  # Encourage wide coverage of TOP-priority tasks
+        "T2C": 5_000_000,  # Encourage SECOND-priority, gated by not already TOP
 
         # --- Two-day rule softening ---
-        "W_SUNDAY_TWO_DAY": 1_000_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
-        "W_TWO_DAY_SOFT": 1_000_000_000_000_000_000 * 10,
+        "W_SUNDAY_TWO_DAY": 250_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
+        "W_TWO_DAY_SOFT": 1_000_000_000_000_000_000,
         # Soft cost when two named days aren’t BOTH manual (soft modes)
     },
 
