@@ -1,8 +1,8 @@
 __pycache__/
 *.pyc
 assigned_optimal.csv
-components_analysis*.png
-components_graph*.png
+components_analysis/
+components_graphs/
 cooldown_debug_by_pf.csv
 fairness_plots_bars.png
 fairness_plots_lorenz.png

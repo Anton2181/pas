@@ -11,6 +11,16 @@ import pytest
 from tests.utils import backend_row, component_row, run_encoder_for_rows
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _script_path(name: str) -> str:
+    candidate = ROOT / name
+    if candidate.exists():
+        return str(candidate)
+    raise FileNotFoundError(f"Unable to locate {name} relative to repo root {ROOT}")
+
+
 def _load_varmap(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -195,7 +205,7 @@ def test_pipeline_produces_assignments(tmp_path: Path) -> None:
 
     cmd = [
         sys.executable,
-        "run_solver.py",
+        _script_path("run_solver.py"),
         "--opb",
         str(paths["schedule"]),
         "--log",
@@ -239,29 +249,32 @@ def test_visualization_script_creates_graph(tmp_path: Path) -> None:
     ]
     backend = [backend_row("Alex", exclusion=("Task A", "Task B"))]
     paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides={"AUTO_SOFTEN": {"ENABLED": False}}, prefix="viz")
-    graph_prefix = tmp_path / "components_graph"
+    graph_dir = tmp_path / "graphs"
+    graph_prefix = "components_graph"
     cmd = [
         sys.executable,
-        "visualize_components.py",
+        _script_path("visualize_components.py"),
         "--components",
         str(paths["components"]),
         "--backend",
         str(paths["backend"]),
-        "--out",
-        str(graph_prefix),
-        "--analysis-prefix",
-        str(tmp_path / "components_analysis"),
+        "--out-dir",
+        str(graph_dir),
+        "--out-prefix",
+        graph_prefix,
+        "--analysis-dir",
+        str(tmp_path / "analysis"),
         "--layouts",
         "grid",
         "calendar",
     ]
     subprocess.run(cmd, check=True)
-    grid_path = tmp_path / "components_graph_grid.png"
-    calendar_path = tmp_path / "components_graph_calendar.png"
+    grid_path = graph_dir / f"{graph_prefix}_grid.png"
+    calendar_path = graph_dir / f"{graph_prefix}_calendar.png"
     assert grid_path.exists() and grid_path.stat().st_size > 0
     assert calendar_path.exists() and calendar_path.stat().st_size > 0
-    hist_path = tmp_path / "components_analysis_candidate_hist.png"
-    heatmap_path = tmp_path / "components_analysis_week_day_heatmap.png"
-    scatter_path = tmp_path / "components_analysis_degree_scatter.png"
+    hist_path = tmp_path / "analysis" / f"{graph_prefix}_candidate_hist.png"
+    heatmap_path = tmp_path / "analysis" / f"{graph_prefix}_week_day_heatmap.png"
+    scatter_path = tmp_path / "analysis" / f"{graph_prefix}_degree_scatter.png"
     for chart in (hist_path, heatmap_path, scatter_path):
         assert chart.exists() and chart.stat().st_size > 0

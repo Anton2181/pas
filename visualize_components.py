@@ -37,12 +37,20 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--components", default="components_all.csv", type=Path)
     ap.add_argument("--backend", default="backend.csv", type=Path)
     ap.add_argument(
+        "--out-dir",
+        "--graphs-dir",
+        dest="out_dir",
+        default=Path("components_graphs"),
+        type=Path,
+        help="Directory for generated graph files",
+    )
+    ap.add_argument(
         "--out-prefix",
         "--out",
         dest="out_prefix",
-        default=Path("components_graph"),
-        type=Path,
-        help="Prefix for generated graph files (suffixes are added per layout)",
+        default="components_graph",
+        type=str,
+        help="Base filename prefix for graph images (suffixes are added per layout)",
     )
     ap.add_argument(
         "--layouts",
@@ -54,10 +62,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--min-weight", type=float, default=0.5, help="Minimum edge alpha when rendering")
     ap.add_argument("--dpi", type=int, default=200, help="Output DPI")
     ap.add_argument(
+        "--analysis-dir",
         "--analysis-prefix",
+        dest="analysis_dir",
         type=Path,
         default=Path("components_analysis"),
-        help="Prefix for non-graph analysis charts",
+        help="Directory for non-graph analysis charts",
     )
     ap.add_argument(
         "--skip-analysis",
@@ -241,7 +251,8 @@ def _format_labels(graph: nx.Graph, mode: str, max_chars: int) -> Dict[str, str]
 
 def draw_graph_variants(
     graph: nx.Graph,
-    out_prefix: Path,
+    out_dir: Path,
+    out_prefix: str,
     *,
     layouts: List[str],
     min_weight: float,
@@ -253,12 +264,11 @@ def draw_graph_variants(
     color_config = _candidate_coloring(graph)
     generated: List[Path] = []
 
-    prefix = out_prefix
-    if prefix.suffix:
-        prefix = prefix.with_suffix("")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = Path(out_prefix).stem or "components_graph"
 
     for layout in layouts:
-        out_path = prefix.parent / f"{prefix.name}_{layout}.png"
+        out_path = out_dir / f"{prefix}_{layout}.png"
         if layout == "calendar":
             _render_calendar(
                 graph,
@@ -465,24 +475,24 @@ def generate_analysis_charts(
     comps: List[encoder.CompRow],
     candidate_counts: Dict[str, int],
     graph: nx.Graph,
-    out_prefix: Path,
+    out_dir: Path,
+    out_prefix: str,
     *,
     dpi: int,
 ) -> List[Path]:
-    prefix = out_prefix
-    if prefix.suffix:
-        prefix = prefix.with_suffix("")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = Path(out_prefix).stem or "components_analysis"
     outputs: List[Path] = []
     counts = [candidate_counts.get(row.cid, 0) for row in comps]
-    hist_path = prefix.parent / f"{prefix.name}_candidate_hist.png"
+    hist_path = out_dir / f"{prefix}_candidate_hist.png"
     _plot_candidate_hist(counts, hist_path, dpi=dpi)
     outputs.append(hist_path)
 
-    heatmap_path = prefix.parent / f"{prefix.name}_week_day_heatmap.png"
+    heatmap_path = out_dir / f"{prefix}_week_day_heatmap.png"
     _plot_week_day_heatmap(comps, candidate_counts, heatmap_path, dpi=dpi)
     outputs.append(heatmap_path)
 
-    scatter_path = prefix.parent / f"{prefix.name}_degree_scatter.png"
+    scatter_path = out_dir / f"{prefix}_degree_scatter.png"
     _plot_degree_scatter(graph, candidate_counts, scatter_path, dpi=dpi)
     outputs.append(scatter_path)
     return outputs
@@ -620,6 +630,7 @@ def main() -> None:
     graph = _build_graph(comps, edges, candidate_counts)
     outputs = draw_graph_variants(
         graph,
+        args.out_dir,
         args.out_prefix,
         layouts=args.layouts,
         min_weight=args.min_weight,
@@ -635,7 +646,8 @@ def main() -> None:
             comps,
             candidate_counts,
             graph,
-            args.analysis_prefix,
+            args.analysis_dir,
+            args.out_prefix,
             dpi=args.dpi,
         )
         for path in analysis_paths:
