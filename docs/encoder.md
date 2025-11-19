@@ -9,6 +9,7 @@ This document describes how the tango task distributor builds the pseudo-Boolean
    - `schedule.opb` – the SAT4J objective/constraint file.
    - `varmap.json` – human-readable names for every generated variable as well as metadata (weights, penalty tiers, scarcity notes, etc.).
    - `stats.txt` – a prose summary of the important knobs, automatically including which families are auto-softened.
+   - `family_registry.csv` – a persistent registry of every canonical family token encountered in this run. The encoder appends new tokens with blank aliases so you can fill in human-readable names later; any alias you enter is reused in subsequent stats/diagnostics.
  3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. When that limit fires, the wrapper now sends `SIGINT` (same as pressing <kbd>Ctrl+C</kbd>) so SAT4J can flush the best-so-far model before being force-killed. Every `v ...` model is written to `models.txt`, and the wrapper immediately calls `consume_saved_models.py` so the fairness plots and CSV summaries are regenerated without manual intervention.
 
 4. `visualize_components.py` is optional but handy when you want to inspect the exclusivity graph. It now renders multiple views by default—`*_grid.png` aligns nodes by (week, day), `*_spring.png` is force-directed, `*_component.png` groups connected components, and `*_calendar.png` dedicates a subplot to each day so labels stop colliding. Nodes are heat-mapped by eligible-candidate count with day-colored borders, `--label-mode` lets you switch between full/short/no labels, and each run also emits candidate-distribution charts. Graphs now land inside `components_graphs/` (override with `--out-dir`) so they stay bundled, while the histogram/heatmap/scatter charts live under `components_analysis/` unless you pass `--analysis-dir`. Use `--skip-analysis` if you only want the graphs.
@@ -16,6 +17,10 @@ This document describes how the tango task distributor builds the pseudo-Boolean
 All of the generated artifacts listed above (`schedule.opb`, `varmap.json`, `stats.txt`, solver summaries, fairness plots, `components_graphs/*.png`, etc.) are now ignored by Git so they do not block PR creation. Re-run the relevant script whenever you need fresh copies—they will show up as untracked files locally.
 
 All of these scripts accept `--components`/`--backend` overrides so you can point to the synthetic fixtures that power the automated tests.
+
+## Family registry aliases
+
+Every sibling/family token is tracked in `family_registry.csv`. The encoder appends new canonical tokens the moment it sees them and then looks up the `Alias` column whenever it writes `stats.txt`, `varmap.json`, or other diagnostics. Leave the alias blank to keep using the canonical name or edit it once to give that family a friendly label—the next encoder run will automatically pick it up. Because the registry is an input to future runs it lives under version control, unlike the other gitignored artifacts.
 
 ## Configuration overrides
 

@@ -172,11 +172,13 @@ def build_config(overrides: dict | None = None) -> dict:
 # -------------------- CLI (paths only) --------------------
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--components", default="components_all.csv", type=Path)
-    ap.add_argument("--backend",    default="backend.csv",       type=Path)
-    ap.add_argument("--out",        default="schedule.opb",      type=Path)
-    ap.add_argument("--map",        default="varmap.json",       type=Path)
-    ap.add_argument("--stats",      default="stats.txt",         type=Path)
+    ap.add_argument("--components",       default="components_all.csv", type=Path)
+    ap.add_argument("--backend",          default="backend.csv",       type=Path)
+    ap.add_argument("--out",              default="schedule.opb",      type=Path)
+    ap.add_argument("--map",              default="varmap.json",       type=Path)
+    ap.add_argument("--stats",            default="stats.txt",         type=Path)
+    ap.add_argument("--family-registry", default="family_registry.csv", type=Path,
+                    help="CSV that stores canonical family tokens + human-friendly aliases")
     ap.add_argument("--config", type=Path, help="Optional JSON file with CONFIG overrides")
     return ap.parse_args()
 
@@ -289,6 +291,67 @@ class AutoSoftener:
         if kind == "repeat":
             return self.relax_repeat
         return False
+
+
+@dataclass
+class FamilyRegistry:
+    """Loads/stores canonical family labels so humans can rename them."""
+
+    path: Path
+    mapping: Dict[str, str] = field(default_factory=dict)
+
+    def load(self) -> None:
+        self.mapping = {}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            with self.path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["CanonicalFamily", "Alias"])
+            return
+
+        with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames:
+                for row in reader:
+                    fam = trim(row.get("CanonicalFamily") or row.get("Family") or row.get(reader.fieldnames[0]) or "")
+                    alias = trim(row.get("Alias") or row.get("Label") or (row.get(reader.fieldnames[1]) if len(reader.fieldnames) > 1 else ""))
+                    if fam:
+                        self.mapping[fam] = alias
+                return
+
+        # Fallback to raw rows if headers were removed manually
+        with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.reader(handle):
+                if not row:
+                    continue
+                fam = trim(row[0])
+                if not fam or fam.lower() == "canonicalfamily":
+                    continue
+                alias = trim(row[1]) if len(row) > 1 else ""
+                self.mapping[fam] = alias
+
+    def sync(self, families_in_order: Iterable[str]) -> None:
+        seen_new: Set[str] = set()
+        append_rows: List[str] = []
+        for fam in families_in_order:
+            fam_trim = trim(fam)
+            if not fam_trim:
+                continue
+            if fam_trim in self.mapping or fam_trim in seen_new:
+                continue
+            seen_new.add(fam_trim)
+            append_rows.append(fam_trim)
+        if not append_rows:
+            return
+        with self.path.open("a", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            for fam in append_rows:
+                writer.writerow([fam, ""])
+                self.mapping[fam] = ""
+
+    def label(self, fam: str) -> str:
+        alias = trim(self.mapping.get(fam, ""))
+        return alias or fam
 
 def read_csv_matrix(path: Path) -> List[List[str]]:
     txt = path.read_text(encoding="utf-8-sig", errors="replace")
@@ -702,6 +765,29 @@ def _encode(args):
         # Preserve prior logic that 'priority' drives cooldown/repeat as TOP-only:
         r.priority = bool(r.is_top)
 
+    family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.csv"))))
+    family_registry.load()
+
+    def ordered_family_tokens() -> List[str]:
+        order: List[str] = []
+        seen: Set[str] = set()
+        for comp in comps:
+            fams = comp.sibling_key if comp.sibling_key else (comp.cid,)
+            for fam in fams:
+                fam_trim = trim(fam)
+                if not fam_trim or fam_trim in seen:
+                    continue
+                seen.add(fam_trim)
+                order.append(fam_trim)
+        return order
+
+    family_tokens = ordered_family_tokens()
+    family_registry.sync(family_tokens)
+    family_labels = {fam: family_registry.label(fam) for fam in family_tokens}
+
+    def fam_label(name: str) -> str:
+        return family_labels.get(name, family_registry.label(name))
+
     # Banned pairs config → frozensets
     BANNED_SIBLING_PAIRS: Set[frozenset] = {frozenset(p) for p in CONFIG["BANNED_SIBLING_PAIRS"]}
     BANNED_SAME_DAY_PAIRS: Set[frozenset] = {frozenset(p) for p in CONFIG["BANNED_SAME_DAY_PAIRS"]}
@@ -1103,7 +1189,13 @@ def _encode(args):
                                   info={"kind":"cooldown_prev_hard_PRI","week":str(w),"person":p,"family":fam_trim})
                     else:
                         cooldown_viols_pri[(p, fam_trim)].append(V_pri)
-                        cooldown_gate_info[V_pri] = {"person": p, "family": fam_trim, "week": w, "gate": "either"}
+                        cooldown_gate_info[V_pri] = {
+                            "person": p,
+                            "family": fam_trim,
+                            "family_label": fam_label(fam_trim),
+                            "week": w,
+                            "gate": "either",
+                        }
 
                     vprev_pri_by_pfam_week[(p, fam_trim, w)] = V_pri
 
@@ -1124,7 +1216,13 @@ def _encode(args):
                               info={"kind":"cooldown_prev_hard_NON","week":str(w),"person":p,"family":fam_trim})
                 else:
                     cooldown_viols_non[(p, fam_trim)].append(V_non)
-                    cooldown_gate_info[V_non] = {"person": p, "family": fam_trim, "week": w, "gate": "either"}
+                    cooldown_gate_info[V_non] = {
+                        "person": p,
+                        "family": fam_trim,
+                        "family_label": fam_label(fam_trim),
+                        "week": w,
+                        "gate": "either",
+                    }
 
                 vprev_non_by_pfam_week[(p, fam_trim, w)] = V_non
 
@@ -1248,14 +1346,26 @@ def _encode(args):
                         cooldown_pri_ladder_vars[z] = (
                             f"cooldown_geo::PRI::INTRA_WEEK::person={p}::family={fam_trim}::days_used={t}::W{w}"
                         )
-                        cooldown_gate_info[z] = {"person": p, "family": fam_trim, "week": w, "gate": "intra_week_auto"}
+                        cooldown_gate_info[z] = {
+                            "person": p,
+                            "family": fam_trim,
+                            "family_label": fam_label(fam_trim),
+                            "week": w,
+                            "gate": "intra_week_auto",
+                        }
                     else:
                         z = gated  # no need to AND with not-priority; PriAny is None already
                         penalties.append((W2_COOLDOWN_INTRA * (COOLDOWN_GEO ** step), z))
                         cooldown_non_ladder_vars[z] = (
                             f"cooldown_geo::NON::INTRA_WEEK::person={p}::family={fam_trim}::days_used={t}::W{w}"
                         )
-                        cooldown_gate_info[z] = {"person": p, "family": fam_trim, "week": w, "gate": "intra_week_auto"}
+                        cooldown_gate_info[z] = {
+                            "person": p,
+                            "family": fam_trim,
+                            "family_label": fam_label(fam_trim),
+                            "week": w,
+                            "gate": "intra_week_auto",
+                        }
 
     # ---------- Tier 3 ----------
     for key, X_all in person_day_X_all.items():
@@ -1636,6 +1746,11 @@ def _encode(args):
     # Back-compat key "priority_coverage_vars" preserved to point to TOP
     priority_coverage_top_alias = dict(priority_coverage_vars_top)
 
+    auto_soften_notes = {
+        fam: {**meta, "family_label": fam_label(fam)}
+        for fam, meta in softener.notes.items()
+    }
+
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
         "q_vars":                    {},
@@ -1662,8 +1777,10 @@ def _encode(args):
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
         "cooldown_gate_info": cooldown_gate_info,
+        "family_registry_path": str(getattr(args, "family_registry", "family_registry.csv")),
+        "family_labels": family_labels,
         "deprioritized_pair_vars": deprioritized_pair_vars,
-        "auto_soften_families": softener.notes,
+        "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
         "fairness_availability": fairness_target_notes,
         "config": CONFIG
@@ -1705,6 +1822,9 @@ def _encode(args):
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
+    stats.append(
+        f"Family registry: {getattr(args, 'family_registry', 'family_registry.csv')} (tracked {len(family_labels)} families)"
+    )
     if fairness_avail_enabled:
         stats.append(
             "Fairness availability scaling: "
@@ -1723,8 +1843,10 @@ def _encode(args):
             stats.append("Auto-soften: skipped cooldown/repeat penalties for these scarce families:")
             for fam in sorted(softener.notes):
                 meta = softener.notes[fam]
+                label = fam_label(fam)
+                disp = label if label == fam else f"{label} ({fam})"
                 stats.append(
-                    f"  • {fam}: slots={meta['slots']}, unique_people={meta['unique_people']}, "
+                    f"  • {disp}: slots={meta['slots']}, unique_people={meta['unique_people']}, "
                     f"slots/person={meta['slots_per_person']}, reasons={meta['reasons']}"
                 )
         else:
@@ -1757,6 +1879,7 @@ def run_encoder(
     out: Path,
     map_path: Path,
     stats_path: Path,
+    family_registry: Path | None = None,
     overrides: dict | None = None,
 ) -> None:
     args = argparse.Namespace(
@@ -1765,6 +1888,7 @@ def run_encoder(
         out=out,
         map=map_path,
         stats=stats_path,
+        family_registry=family_registry or Path("family_registry.csv"),
         config=None,
     )
     encode_with_args(args, overrides=overrides)

@@ -166,12 +166,15 @@ def run_encoder_for_rows(
     out = tmp_path / f"{prefix}_schedule.opb"
     map_path = tmp_path / f"{prefix}_varmap.json"
     stats_path = tmp_path / f"{prefix}_stats.txt"
+    registry_path = tmp_path / f"{prefix}_family_registry.csv"
+
     encoder.run_encoder(
         components=comp_path,
         backend=backend_path,
         out=out,
         map_path=map_path,
         stats_path=stats_path,
+        family_registry=registry_path,
         overrides=overrides,
     )
     return {
@@ -180,4 +183,5 @@ def run_encoder_for_rows(
         "schedule": out,
         "map": map_path,
         "stats": stats_path,
+        "family_registry": registry_path,
     }
