@@ -31,7 +31,7 @@ for them so their scarcity does not dominate the solve.
 """
 
 from __future__ import annotations
-import argparse, copy, csv, io, json
+import argparse, copy, csv, io, json, math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Iterable
@@ -78,8 +78,8 @@ DEFAULT_CONFIG = {
         "RELAX_REPEAT": True,
     },
 
-    "FAIR_MEAN_MULTIPLIER": 0.9,
-    "FAIR_OVER_START_DELTA": 2,
+    "FAIR_MEAN_MULTIPLIER": 1.0,
+    "FAIR_OVER_START_DELTA": 0,
 
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
@@ -121,12 +121,12 @@ DEFAULT_CONFIG = {
         },
 
         # --- Priority coverage pressure ---
-        "T1C": 100_000_000,  # Encourage wide coverage of TOP-priority tasks
-        "T2C": 5_000_000,  # Encourage SECOND-priority, gated by not already TOP
+        "T1C": 1_000_000_000,  # Encourage wide coverage of TOP-priority tasks
+        "T2C": 500_000_000,  # Encourage SECOND-priority, gated by not already TOP
 
         # --- Two-day rule softening ---
-        "W_SUNDAY_TWO_DAY": 250_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
-        "W_TWO_DAY_SOFT": 1_000_000_000_000_000_000,
+        "W_SUNDAY_TWO_DAY": 1_500_000_000,  # Soft cost for Sunday-inclusive pairs when softened
+        "W_TWO_DAY_SOFT": 2_000_000_000,
         # Soft cost when two named days aren’t BOTH manual (soft modes)
     },
 
@@ -1391,7 +1391,7 @@ def _encode(args):
             ratio = raw_slots / fairness_counts_mean if fairness_counts_mean > 0 else 1.0
             ratio = max(fairness_min_ratio, min(fairness_max_ratio, ratio))
             scale = ratio ** fairness_power
-            person_target = max(1, int(round(mean_target * scale)))
+            person_target = max(1, int(math.ceil(mean_target * scale - 1e-9)))
         else:
             raw_slots = fairness_counts_map.get(p, 0)
             ratio = 1.0
