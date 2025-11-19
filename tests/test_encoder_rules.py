@@ -159,6 +159,23 @@ def test_priority_coverage_modes(tmp_path: Path, mode: str) -> None:
     assert all(token in label for label in labels)
 
 
+def test_priority_miss_guard_records_people(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Top Task", candidates=["Alex", "Blair"], priority=True)
+    ]
+    backend = [backend_row("Alex", top_task="Top Task"), backend_row("Blair")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="prio_guard")
+    varmap = _load_varmap(paths["map"])
+    required = varmap.get("priority_required_vars", {})
+    assert required, "expected priority miss guard selectors"
+    assert any("person=Alex" in label for label in required.values())
+
+
 def test_fairness_availability_scaling(tmp_path: Path) -> None:
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task 1", candidates=["Alex", "Blair"]),

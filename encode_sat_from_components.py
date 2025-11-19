@@ -87,6 +87,7 @@ DEFAULT_CONFIG = {
         "W1_COOLDOWN": 1_000_000_000_000_000,  # PRI cooldown ladder base (per counted violation step)
         "W1_REPEAT": 5 * 1_000_000_000_000_000,  # PRI repeat-over ladder base (above per-family limit)
         "W1_STREAK": 25 * 1_000_000_000_000_000,  # PRI cooldown streak (back-to-back weeks in same family)
+        "W_PRIORITY_MISS": 3_000_000_000,  # Heavy penalty when a TOP-eligible person receives zero priority tasks
 
         "W1_COOLDOWN_INTRA": 10_000_000_000_000_000_000,  # default = W1_COOLDOWN
         "W2_COOLDOWN_INTRA": 500_000_000_000_000,      # default = W2_COOLDOWN
@@ -676,6 +677,7 @@ def _encode(args):
 
     W6_OVER, W6_UNDER, T1C = weight("W6_OVER"), weight("W6_UNDER"), weight("T1C")
     T2C = weight("T2C", default=max(1, T1C // 10))
+    W_PRIORITY_MISS = weight("W_PRIORITY_MISS", default=0)
     SUNDAY_TWO_DAY_SOFT = bool(CONFIG.get("SUNDAY_TWO_DAY_SOFT", False))
     TWO_DAY_SOFT_ALL = bool(CONFIG.get("TWO_DAY_SOFT_ALL", False))
     FAIR_MEAN_MULTIPLIER = float(CONFIG.get("FAIR_MEAN_MULTIPLIER", 1.0))
@@ -1542,16 +1544,27 @@ def _encode(args):
     # ---------- Priority coverage (GLOBAL / FAMILY), two tiers ----------
     priority_coverage_vars_top: Dict[str, str] = {}
     priority_coverage_vars_second: Dict[str, str] = {}
+    priority_required_vars: Dict[str, str] = {}
+
+    top_any_by_person: Dict[str, str] = {}
+    top_miss_by_person: Dict[str, str] = {}
+    for p in people:
+        x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
+        if not x_top:
+            continue
+        TopAny = make_or(pb, x_top)
+        z_miss = pb.new_var()
+        pb.add_eq([(1, z_miss), (1, TopAny)], 1)
+        top_any_by_person[p] = TopAny
+        top_miss_by_person[p] = z_miss
+        priority_required_vars[z_miss] = f"priority_required::person={p}"
+        if W_PRIORITY_MISS > 0:
+            penalties.append((W_PRIORITY_MISS, z_miss))
 
     if PRIORITY_COVERAGE_MODE == "global":
         # TOP (independent)
-        for p in people:
-            x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
-            if not x_top:
-                continue  # not eligible
-            TopAny = make_or(pb, x_top)
-            z = pb.new_var()  # 1 - TopAny
-            pb.add_eq([(1, z), (1, TopAny)], 1)
+        for p in sorted(top_miss_by_person):
+            z = top_miss_by_person[p]
             penalties.append((T1C, z))
             priority_coverage_vars_top[z] = f"priority_coverage_TOP::GLOBAL::person={p}"
 
@@ -1563,8 +1576,7 @@ def _encode(args):
             SecondAny = make_or(pb, x_second)
 
             # Build TopAny (if eligible for top); if no top-eligibility, TopAny is None
-            x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
-            TopAny = make_or(pb, x_top) if x_top else None
+            TopAny = top_any_by_person.get(p)
 
             CoveredEither = make_or(pb, [SecondAny, TopAny])  # treat TOP as satisfying SECOND coverage
             z2 = pb.new_var()  # 1 - (SecondAny OR TopAny)
@@ -1639,6 +1651,7 @@ def _encode(args):
         "priority_coverage_vars":           priority_coverage_top_alias,   # kept for older consumers
         "priority_coverage_vars_top":       priority_coverage_vars_top,
         "priority_coverage_vars_second":    priority_coverage_vars_second,
+        "priority_required_vars":           priority_required_vars,
         # NOTE: PRI repeat-over exports gated vars (only penalize when auto-PRI exists within family)
         "repeat_limit_pri_vars":     repeat_limit_pri_vars,
         "repeat_limit_non_vars":     repeat_limit_non_vars,
@@ -1688,6 +1701,7 @@ def _encode(args):
         f"Tier-6 fairness mean: base={mean_base}, scaled={mean_scaled}, target(with delta)={mean_target} "
         f"(FAIR_MEAN_MULTIPLIER={FAIR_MEAN_MULTIPLIER}, FAIR_OVER_START_DELTA={FAIR_OVER_START_DELTA})",
         f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): T1C={T1C} (TOP), T2C={T2C} (SECOND; ignored if TOP already).",
+        f"Priority miss guard (per TOP-eligible person): W_PRIORITY_MISS={W_PRIORITY_MISS}.",
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
