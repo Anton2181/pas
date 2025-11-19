@@ -12,20 +12,7 @@ This repo houses the offline pipeline that schedules weekly tango school tasks. 
    - Automatically widens candidate pools via leader/follower sibling links, merges "Both" role expansions, and reports which families are scarcity-limited (see `auto_soften_families` in `varmap.json`).
 3. `python3 run_solver.py --opb schedule.opb --log logs/solver.log`
    - Runs SAT4J with a **hard 120s timeout** so the workflow never hangs. Adjust `--timeout` if you want a different wall clock limit. The wrapper mirrors stdout to the terminal and to the specified log file, returning exit code `124` when it kills the solver.
-4. Paste the solver’s `v ...` model into `models.txt` and summarize it via
-   ```bash
-   python3 consume_saved_models.py \
-       --models models.txt \
-       --varmap varmap.json \
-       --components components_all.csv \
-       --metric effort \
-       --plots-bars fairness_plots_bars.png \
-       --plots-lorenz fairness_plots_lorenz.png \
-       --assigned-out assigned_optimal.csv \
-       --models-out models_summary.csv \
-       --loads-out loads_by_person.csv
-   ```
-   The resulting CSVs and charts drive the fairness/debug review.
+   - Every `v ...` model that SAT4J prints is captured automatically. The wrapper writes them to `models.txt` and immediately invokes `consume_saved_models.py` so `assigned_optimal.csv`, `models_summary.csv`, `loads_by_person.csv`, `fairness_plots_*.png`, and `penalties_activated.csv` are refreshed without manual copy/paste. Pass `--skip-consume` if you only want the solver log. (If the solver times out before it emits a `v ...` line, the wrapper keeps the log and reports that no evaluation was run.)
 
 ## Encoder details
 
@@ -36,5 +23,5 @@ This repo houses the offline pipeline that schedules weekly tango school tasks. 
 ## When something looks off
 
 1. **Penalties feel unreasonably high even when weights change.** Check `varmap.json.auto_soften_families`. Families that do *not* appear there still pay full cooldown/repeat costs; if they only have one or two eligible people, widen their candidate pool in `components_all.csv` or the backend roles so they qualify for auto-softening.
-2. **Solver output takes too long.** Re-run via `python3 run_solver.py --timeout 90` (or any limit you prefer). The wrapper will stop SAT4J automatically, keeping the best-known model in the log so you can paste it into `models.txt`.
+2. **Solver output takes too long.** Re-run via `python3 run_solver.py --timeout 90` (or any limit you prefer). The wrapper will stop SAT4J automatically and still extract the best-known `v ...` line so the downstream CSVs stay in sync.
 3. **Need more context?** `docs/encoder.md` describes every artifact the encoder produces and how to inspect it.

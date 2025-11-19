@@ -9,8 +9,7 @@ This document describes how the tango task distributor builds the pseudo-Boolean
    - `schedule.opb` – the SAT4J objective/constraint file.
    - `varmap.json` – human-readable names for every generated variable as well as metadata (weights, penalty tiers, scarcity notes, etc.).
    - `stats.txt` – a prose summary of the important knobs, automatically including which families are auto-softened.
-3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. Its stdout is copied to both the terminal and `solver.log`.
-4. `consume_saved_models.py` consumes the solver output (`models.txt`) to create fairness charts and CSV summaries for downstream review.
+3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. It now captures every `v ...` model, writes them to `models.txt`, and immediately calls `consume_saved_models.py` so the fairness plots and CSV summaries are regenerated without manual intervention.
 
 ## Auto-softening for scarce families
 
@@ -32,6 +31,19 @@ The encoder already merges "Both"-role expansions, manual overrides, and sibling
 | `stats.txt` | Narrative summary including repeat/cooldown ladders, fairness mean, and now the auto-soften report. |
 | `varmap.json` | Contains every objective selector name and the config snapshot. Search for `auto_soften_families` to see which families were relieved. |
 | `penalties_activated.csv` | Generated after solving; lists which ladder variables fired and how often. Combine with the scarcity report to see if the solver is still bottlenecked elsewhere. |
+
+## Automatic evaluation after solving
+
+`run_solver.py` can be treated as a single-button "solve + analyze" step:
+
+```bash
+python3 run_solver.py --opb schedule.opb --metric effort --log logs/solver.log
+```
+
+- `models.txt` is populated with every `v ...` line that the solver printed (best model last).
+- `assigned_optimal.csv`, `models_summary.csv`, `loads_by_person.csv`, `penalties_activated.csv`, and the fairness plots are refreshed immediately via `consume_saved_models.py`.
+- Use `--skip-consume` if you only want the solver output, or change `--metric` when you want the fairness charts to be based on task count vs. effort.
+- When the timeout fires before SAT4J emits a `v ...` assignment, the wrapper keeps the log, tells you no evaluation ran, and leaves the previous CSVs untouched so you can rerun with a longer limit.
 
 ## Running the solver safely
 
