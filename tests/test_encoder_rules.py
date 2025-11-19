@@ -231,13 +231,15 @@ def test_pipeline_produces_assignments(tmp_path: Path) -> None:
 
 
 def test_visualization_script_creates_graph(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    pytest.importorskip("networkx")
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex"], sibling_key="Fam"),
         component_row(cid="C2", week="Week 1", day="Tuesday", task_name="Task B", candidates=["Alex"], sibling_key="Fam"),
     ]
     backend = [backend_row("Alex", exclusion=("Task A", "Task B"))]
     paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides={"AUTO_SOFTEN": {"ENABLED": False}}, prefix="viz")
-    graph_path = tmp_path / "components_graph.png"
+    graph_prefix = tmp_path / "components_graph"
     cmd = [
         sys.executable,
         "visualize_components.py",
@@ -246,8 +248,13 @@ def test_visualization_script_creates_graph(tmp_path: Path) -> None:
         "--backend",
         str(paths["backend"]),
         "--out",
-        str(graph_path),
+        str(graph_prefix),
+        "--layouts",
+        "grid",
+        "spring",
     ]
     subprocess.run(cmd, check=True)
-    assert graph_path.exists()
-    assert graph_path.stat().st_size > 0
+    grid_path = tmp_path / "components_graph_grid.png"
+    spring_path = tmp_path / "components_graph_spring.png"
+    assert grid_path.exists() and grid_path.stat().st_size > 0
+    assert spring_path.exists() and spring_path.stat().st_size > 0
