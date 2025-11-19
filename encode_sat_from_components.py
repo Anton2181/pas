@@ -1,50 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Encoder (optimized) with per-person repeat limits, geometric cooldown scaling,
-and your latest options.
+"""Tango task encoder.
 
-What it enforces / optimizes:
+The script reads ``components_all.csv`` and ``backend.csv`` and emits three
+artifacts:
 
-- Exactly-one per component (hard).
-- Same-day per-person rules:
-  • If a (person, week, day) has ANY AUTO component, require ≥ 2 tasks that day (Task Count weighted).
-  • Task-task exclusions on the same (week, day).
-  • Optional banned same-day person pairs (named days only).
-  • "Two different named days per week" forbidden unless at least one side is fully manual.
-- Sibling rules:
-  • Names-based legacy “pair” grouping for preferred-pairs scoring.
-  • Family-based grouping PER FAMILY TOKEN (any overlap binds the group):
-      – at-most-one per person across the group.
-      – optional banned sibling person pairs across the group.
-  • Manual “Both” unfreeze links handled.
-- Prev-week cooldown (aggregated per family):
-  • Applies only when at least one side is AUTO.
-  • If HARD=false: soft penalties via a geometric ladder by count of violations per (person,family):
-       Priority:  W1 * COOLDOWN_GEO^(t-1), for t = 1..(#violations)
-       Non-prio:  W2 * COOLDOWN_GEO^(t-1)
-  • If HARD=true (per tier), forbid those violations.
-  • Streak sub-tier (adjacent-week) remains (W1_STREAK / W2_STREAK).
-  • GAP (non-consecutive) penalties are removed.
-- Repeat limits:
-  • Per person × family, cap total #Priority and #NonPriority assignments across the horizon.
-  • If HARD=false: geometric over-limit penalties using REPEAT_OVER_GEO (gated on having AUTO in that family).
-  • If HARD=true: hard cap.
-- Preferred pairs: penalize missed pairs when feasible, scaled by #feasible pairs.
-- Across-horizon fairness:
-  • Global (not per-week) convex penalties that push each person's total effort toward the global mean,
-    with separate non-linear ladders for OVER- and UNDER-load.
-- Optional “priority coverage” pressure (two tiers):
-  • Encourage as many different people as possible to do TOP priority tasks (T1C).
-  • Encourage SECOND priority tasks (T2C = T1C/10) **only for people who did not receive a TOP**.
-  • Scope configurable: GLOBAL (across all families) or FAMILY (per family token).
+* ``schedule.opb`` – PB model consumed by SAT4J.
+* ``varmap.json`` – labels for diagnostics/plots/consumer scripts.
+* ``stats.txt`` – human-readable recap of the options that shaped the model.
 
-Inputs:
-  --components components_all.csv  (must include "Task Count"; uses "SiblingKey" when present)
-  --backend backend.csv
+Hard constraints:
 
-Outputs:
-  schedule.opb, varmap.json, stats.txt.
+* exactly-one assignment per component
+* at most one task per (person, week, family) once sibling tokens overlap
+* two named days per week are forbidden unless one side is fully manual
+* manual “Both” links transfer candidates between repeat pairs
+* same-day task exclusions and optional banned person pairs
+
+Soft objective (highest → lowest tier):
+
+1. cooldown ladders, repeat limits, and streaks (priority / non-priority)
+2. manual-day coverage nudges and "Both" fallback penalties
+3. deprioritized same-day pairs
+4. preferred-pair misses
+5. across-horizon fairness ladders
+6. optional priority-coverage encouragement
+
+Auto softening detects under-staffed families and can skip selected penalties
+for them so their scarcity does not dominate the solve.
 """
 
 from __future__ import annotations
@@ -211,9 +194,71 @@ class CompRow:
     candidates_all: List[str]
     candidates_role: List[str]
     sibling_key: Tuple[str, ...]  # canonical family tokens used for sibling/cooldown grouping
-    # NEW flags for two-tier priority spread:
+    # Flags for two-tier priority spread
     is_top: bool = field(default=False)     # Top Priority (column AE)
     is_second: bool = field(default=False)  # Second Priority (column AF)
+
+
+@dataclass
+class AutoSoftener:
+    """Tracks families with scarce staffing and knows which penalties to skip."""
+
+    enabled: bool
+    min_unique: int
+    max_slots_ratio: float
+    relax_cooldown: bool
+    relax_repeat: bool
+    notes: Dict[str, Dict[str, str]] = field(default_factory=dict)
+
+    def analyze(self, comps: List[CompRow], candidates: Dict[str, List[str]]) -> None:
+        if not self.enabled:
+            self.notes = {}
+            return
+
+        fam_people: Dict[str, Set[str]] = defaultdict(set)
+        fam_slots: Dict[str, int] = defaultdict(int)
+
+        for r in comps:
+            fams = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
+            fams = tuple(trim(f) for f in fams if trim(f))
+            for fam in fams:
+                fam_slots[fam] += 1
+                fam_people[fam].update(candidates.get(r.cid, []))
+
+        scarce: Dict[str, Dict[str, str]] = {}
+        for fam, slots in fam_slots.items():
+            uniq = len(fam_people[fam])
+            ratio = float("inf") if uniq == 0 else slots / max(1, uniq)
+            reasons: List[str] = []
+            if uniq == 0:
+                reasons.append("no_candidates")
+            if uniq <= self.min_unique:
+                reasons.append(f"unique<= {self.min_unique}")
+            if ratio >= self.max_slots_ratio:
+                reasons.append(f"slots/person>= {self.max_slots_ratio}")
+            if reasons:
+                scarce[fam] = {
+                    "slots": str(slots),
+                    "unique_people": str(uniq),
+                    "slots_per_person": (
+                        "inf" if ratio == float("inf") else f"{ratio:.2f}"
+                    ),
+                    "reasons": ", ".join(reasons),
+                }
+
+        self.notes = scarce
+
+    def should_skip(self, kind: str, fam: str) -> bool:
+        if not self.enabled:
+            return False
+        fam_trim = trim(fam)
+        if not fam_trim or fam_trim not in self.notes:
+            return False
+        if kind == "cooldown":
+            return self.relax_cooldown
+        if kind == "repeat":
+            return self.relax_repeat
+        return False
 
 def read_csv_matrix(path: Path) -> List[List[str]]:
     txt = path.read_text(encoding="utf-8-sig", errors="replace")
@@ -282,7 +327,7 @@ def load_backend_roles_and_maps(backend_matrix: List[List[str]]):
     c_dpr1   = find_col("DeprioritizedPairs1")
     c_dpr2   = find_col("DeprioritizedPairs2")
 
-    # NEW: columns for Top/Second priority task names (by header or fallback to AE/AF)
+    # Columns for Top/Second priority task names (by header or fallback to AE/AF)
     c_top = find_col("Top Priority")
     c_second = find_col("Second Priority")
     if c_top is None and len(hdr) > 30:   # AE (0-based index ~ 30)
@@ -581,24 +626,28 @@ def main():
 
     PRIORITY_COVERAGE_MODE = str(CONFIG["PRIORITY_COVERAGE_MODE"]).lower()
     W = CONFIG["WEIGHTS"]
-    W1_legacy = int(W.get("W1", 1_000_000_000_000_000_000))
-    W2_legacy = int(W.get("W2", 1_000_000_000_000_000))
 
-    # Split bases (use legacy if not provided)
-    W1_COOLDOWN = int(W.get("W1_COOLDOWN", W1_legacy))
-    W1_REPEAT = int(W.get("W1_REPEAT", W1_legacy))
-    W2_COOLDOWN = int(W.get("W2_COOLDOWN", W2_legacy))
-    W2_REPEAT = int(W.get("W2_REPEAT", W2_legacy))
-    W1_COOLDOWN_INTRA = int(W.get("W1_COOLDOWN_INTRA", W1_COOLDOWN))
-    W2_COOLDOWN_INTRA = int(W.get("W2_COOLDOWN_INTRA", W2_COOLDOWN))
-    W1_STREAK = int(W["W1_STREAK"])
-    W2_STREAK = int(W["W2_STREAK"])
+    def weight(name: str, *, default: int | None = None) -> int:
+        if name in W:
+            return int(W[name])
+        if default is not None:
+            return int(default)
+        raise KeyError(f"Missing weight '{name}' in CONFIG['WEIGHTS']")
 
-    W3, W4, W5 = int(W["W3"]), int(W["W4"]), int(W["W5"])
-    W4_DPR = int(W.get("W4_DPR", W4))
+    W1_COOLDOWN = weight("W1_COOLDOWN")
+    W1_REPEAT = weight("W1_REPEAT")
+    W2_COOLDOWN = weight("W2_COOLDOWN")
+    W2_REPEAT = weight("W2_REPEAT")
+    W1_COOLDOWN_INTRA = weight("W1_COOLDOWN_INTRA", default=W1_COOLDOWN)
+    W2_COOLDOWN_INTRA = weight("W2_COOLDOWN_INTRA", default=W2_COOLDOWN)
+    W1_STREAK = weight("W1_STREAK")
+    W2_STREAK = weight("W2_STREAK")
 
-    W6_OVER, W6_UNDER, T1C = int(W["W6_OVER"]), int(W["W6_UNDER"]), int(W["T1C"])
-    T2C = int(W.get("T2C", max(1, T1C // 10)))
+    W3, W4, W5 = weight("W3"), weight("W4"), weight("W5")
+    W4_DPR = weight("W4_DPR", default=W4)
+
+    W6_OVER, W6_UNDER, T1C = weight("W6_OVER"), weight("W6_UNDER"), weight("T1C")
+    T2C = weight("T2C", default=max(1, T1C // 10))
     SUNDAY_TWO_DAY_SOFT = bool(CONFIG.get("SUNDAY_TWO_DAY_SOFT", False))
     TWO_DAY_SOFT_ALL = bool(CONFIG.get("TWO_DAY_SOFT_ALL", False))
     FAIR_MEAN_MULTIPLIER = float(CONFIG.get("FAIR_MEAN_MULTIPLIER", 1.0))
@@ -648,7 +697,7 @@ def main():
     # Snapshot original manual flags (from extractor)
     original_manual: Dict[str, bool] = {r.cid: bool(r.assigned_flag) for r in comps}
 
-    # Sibling groups (names-based legacy; for preferred pairs)
+    # Sibling groups by literal Names (used for preferred pairs / manual links)
     sib_groups_names: Dict[Tuple[str, str, Tuple[str, ...]], List[CompRow]] = defaultdict(list)
     for r in comps:
         sib_groups_names[(r.week_label, r.day, tuple(sorted(r.names)))].append(r)
@@ -722,53 +771,14 @@ def main():
             is_manual[r.cid] = (len(cand[r.cid]) == 1)
 
     auto_soften_cfg = CONFIG.get("AUTO_SOFTEN", {})
-    soften_enabled = bool(auto_soften_cfg.get("ENABLED", False))
-    min_unique = int(auto_soften_cfg.get("MIN_UNIQUE_CANDIDATES", 2))
-    max_slots_ratio = float(auto_soften_cfg.get("MAX_SLOTS_PER_PERSON", 2.0))
-    relax_cooldown = bool(auto_soften_cfg.get("RELAX_COOLDOWN", True))
-    relax_repeat = bool(auto_soften_cfg.get("RELAX_REPEAT", True))
-
-    scarce_family_notes: Dict[str, Dict[str, str]] = {}
-    if soften_enabled:
-        fam_people: Dict[str, Set[str]] = defaultdict(set)
-        fam_slots: Dict[str, int] = defaultdict(int)
-
-        for r in comps:
-            fams = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
-            fams = tuple(trim(f) for f in fams if trim(f))
-            for fam in fams:
-                fam_slots[fam] += 1
-                fam_people[fam].update(cand.get(r.cid, []))
-
-        for fam, slots in fam_slots.items():
-            uniq = len(fam_people[fam])
-            ratio = float('inf') if uniq == 0 else slots / max(1, uniq)
-            reasons: List[str] = []
-            if uniq == 0:
-                reasons.append("no_candidates")
-            if uniq <= min_unique:
-                reasons.append(f"unique<= {min_unique}")
-            if ratio >= max_slots_ratio:
-                reasons.append(f"slots/person>= {max_slots_ratio}")
-            if reasons:
-                scarce_family_notes[fam] = {
-                    "slots": str(slots),
-                    "unique_people": str(uniq),
-                    "slots_per_person": ("inf" if ratio == float('inf') else f"{ratio:.2f}"),
-                    "reasons": ", ".join(reasons),
-                }
-
-    def fam_softened_for(kind: str, fam: str) -> bool:
-        if not soften_enabled:
-            return False
-        fam = trim(fam)
-        if fam not in scarce_family_notes:
-            return False
-        if kind == "cooldown":
-            return relax_cooldown
-        if kind == "repeat":
-            return relax_repeat
-        return False
+    softener = AutoSoftener(
+        enabled=bool(auto_soften_cfg.get("ENABLED", False)),
+        min_unique=int(auto_soften_cfg.get("MIN_UNIQUE_CANDIDATES", 2)),
+        max_slots_ratio=float(auto_soften_cfg.get("MAX_SLOTS_PER_PERSON", 2.0)),
+        relax_cooldown=bool(auto_soften_cfg.get("RELAX_COOLDOWN", True)),
+        relax_repeat=bool(auto_soften_cfg.get("RELAX_REPEAT", True)),
+    )
+    softener.analyze(comps, cand)
 
     # -------------------- Prebuild x-variables --------------------
     pb = PBWriter(debug_relax=DEBUG_RELAX, W_HARD=W_HARD)
@@ -863,7 +873,7 @@ def main():
     penalties: List[Tuple[int, str]] = []
     two_day_soft_vars: Dict[str, str] = {}
 
-    # -------------------- Sibling anti-dup (names-based, legacy) --------------------
+    # -------------------- Sibling anti-dup (names-based exact match) --------------------
     for key, items in sib_groups_names.items():
         if len(items) <= 1: continue
         cids = [r.cid for r in items]
@@ -1021,7 +1031,7 @@ def main():
     cooldown_viols_pri: Dict[Tuple[str, str], List[str]] = defaultdict(list)
     cooldown_viols_non: Dict[Tuple[str, str], List[str]] = defaultdict(list)
 
-    # NEW: richer gate info for debugging/inspection
+    # Richer gate info for debugging/inspection
     cooldown_gate_info: Dict[str, Dict[str, str | int]] = {}
 
     for p in people:
@@ -1033,7 +1043,7 @@ def main():
                 fam_trim = trim(fam)
                 if not fam_trim:
                     continue
-                if fam_softened_for("cooldown", fam_trim):
+                if softener.should_skip("cooldown", fam_trim):
                     continue
                 P_any, P_pri, P_auto = fam_indicators(prev_w, fam_trim, p)
                 C_any, C_pri, C_auto = fam_indicators(w, fam_trim, p)
@@ -1107,7 +1117,7 @@ def main():
     add_streak_penalties(vprev_pri_by_pfam_week, W1_STREAK, "PRI")
     add_streak_penalties(vprev_non_by_pfam_week, W2_STREAK, "NON")
 
-    # NEW: Geometric scaling ladders for cooldown violation counts
+    # Geometric scaling ladders for cooldown violation counts
     cooldown_pri_ladder_vars: Dict[str, str] = {}
     cooldown_non_ladder_vars: Dict[str, str] = {}
 
@@ -1158,7 +1168,7 @@ def main():
                 fam_trim = trim(fam)
                 if not fam_trim:
                     continue
-                if fam_softened_for("cooldown", fam_trim):
+                if softener.should_skip("cooldown", fam_trim):
                     continue
                 day_terms_any: List[str] = []
                 day_terms_pri: List[str] = []
@@ -1358,7 +1368,7 @@ def main():
             fam_trim = trim(fam)
             if not fam_trim:
                 continue
-            if fam_softened_for("repeat", fam_trim):
+            if softener.should_skip("repeat", fam_trim):
                 continue
             # All PRIORITY assignments for (person p, family fam) — manual + auto
             pri_terms_pf = [
@@ -1536,7 +1546,7 @@ def main():
     # Map / debug
     selectors_by_var = {v: k for k, v in pb._selmap.items()}
     # Back-compat key "priority_coverage_vars" preserved to point to TOP
-    priority_coverage_vars_legacy = dict(priority_coverage_vars_top)
+    priority_coverage_top_alias = dict(priority_coverage_vars_top)
 
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
@@ -1550,7 +1560,7 @@ def main():
         "vprev_nonconsec_vars":      {},
         "preferred_miss_vars":       preferred_miss_vars,
         # Coverage maps
-        "priority_coverage_vars":           priority_coverage_vars_legacy,   # legacy = TOP
+        "priority_coverage_vars":           priority_coverage_top_alias,   # kept for older consumers
         "priority_coverage_vars_top":       priority_coverage_vars_top,
         "priority_coverage_vars_second":    priority_coverage_vars_second,
         # NOTE: PRI repeat-over exports gated vars (only penalize when auto-PRI exists within family)
@@ -1558,13 +1568,13 @@ def main():
         "repeat_limit_non_vars":     repeat_limit_non_vars,
         "cooldown_pri_ladder_vars":  cooldown_pri_ladder_vars,
         "cooldown_non_ladder_vars":  cooldown_non_ladder_vars,
-        # NEW: gate visibility for cooldowns (lets you confirm AUTO was required)
+        # Gate visibility for cooldowns (lets you confirm AUTO was required)
         "two_day_soft_vars": two_day_soft_vars,
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
         "cooldown_gate_info": cooldown_gate_info,
         "deprioritized_pair_vars": deprioritized_pair_vars,
-        "auto_soften_families": scarce_family_notes,
+        "auto_soften_families": softener.notes,
         "config": CONFIG
 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1603,11 +1613,11 @@ def main():
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
-    if soften_enabled:
-        if scarce_family_notes:
+    if softener.enabled:
+        if softener.notes:
             stats.append("Auto-soften: skipped cooldown/repeat penalties for these scarce families:")
-            for fam in sorted(scarce_family_notes):
-                meta = scarce_family_notes[fam]
+            for fam in sorted(softener.notes):
+                meta = softener.notes[fam]
                 stats.append(
                     f"  • {fam}: slots={meta['slots']}, unique_people={meta['unique_people']}, "
                     f"slots/person={meta['slots_per_person']}, reasons={meta['reasons']}"
