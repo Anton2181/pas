@@ -2,6 +2,7 @@
 """Run SAT4J with a hard timeout and immediately summarize the best model."""
 from __future__ import annotations
 import argparse
+import signal
 import subprocess
 import sys
 import time
@@ -19,6 +20,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--main-class", default="org.sat4j.pb.LanceurPseudo2007", help="Solver entry point")
     ap.add_argument("--timeout", type=int, default=120, help="Time limit in seconds (default: 120s)")
     ap.add_argument("--log", type=Path, default=Path("solver.log"), help="Where to store solver stdout")
+    ap.add_argument(
+        "--interrupt-grace",
+        type=int,
+        default=10,
+        help="Seconds to wait after delivering SIGINT before force-killing the solver",
+    )
     ap.add_argument("--models-out", type=Path, default=Path("models.txt"), help="Path that will receive the extracted v-lines")
     ap.add_argument("--varmap", type=Path, default=Path("varmap.json"), help="varmap produced by the encoder")
     ap.add_argument("--components", type=Path, default=Path("components_all.csv"), help="components table used for encoding")
@@ -116,8 +123,20 @@ def main() -> None:
             stdout, _ = proc.communicate(timeout=args.timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            proc.kill()
-            stdout, _ = proc.communicate()
+            print(
+                f"[run_solver] Timeout after {args.timeout}s – sending SIGINT to request best-so-far model...",
+                file=sys.stderr,
+            )
+            proc.send_signal(signal.SIGINT)
+            try:
+                stdout, _ = proc.communicate(timeout=args.interrupt_grace)
+            except subprocess.TimeoutExpired:
+                print(
+                    f"[run_solver] Solver ignored SIGINT for {args.interrupt_grace}s – killing process.",
+                    file=sys.stderr,
+                )
+                proc.kill()
+                stdout, _ = proc.communicate()
         finally:
             duration = time.time() - started
 

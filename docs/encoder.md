@@ -9,7 +9,7 @@ This document describes how the tango task distributor builds the pseudo-Boolean
    - `schedule.opb` – the SAT4J objective/constraint file.
    - `varmap.json` – human-readable names for every generated variable as well as metadata (weights, penalty tiers, scarcity notes, etc.).
    - `stats.txt` – a prose summary of the important knobs, automatically including which families are auto-softened.
-3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. It now captures every `v ...` model, writes them to `models.txt`, and immediately calls `consume_saved_models.py` so the fairness plots and CSV summaries are regenerated without manual intervention.
+3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. When that limit fires, the wrapper now sends `SIGINT` (same as pressing <kbd>Ctrl+C</kbd>) so SAT4J can flush the best-so-far model before being force-killed. Every `v ...` model is written to `models.txt`, and the wrapper immediately calls `consume_saved_models.py` so the fairness plots and CSV summaries are regenerated without manual intervention.
 
 ## Auto-softening for scarce families
 
@@ -43,7 +43,7 @@ python3 run_solver.py --opb schedule.opb --metric effort --log logs/solver.log
 - `models.txt` is populated with every `v ...` line that the solver printed (best model last).
 - `assigned_optimal.csv`, `models_summary.csv`, `loads_by_person.csv`, `penalties_activated.csv`, and the fairness plots are refreshed immediately via `consume_saved_models.py`.
 - Use `--skip-consume` if you only want the solver output, or change `--metric` when you want the fairness charts to be based on task count vs. effort.
-- When the timeout fires before SAT4J emits a `v ...` assignment, the wrapper keeps the log, tells you no evaluation ran, and leaves the previous CSVs untouched so you can rerun with a longer limit.
+- When the timeout fires before SAT4J emits a `v ...` assignment, the wrapper first issues `SIGINT` to request the best-so-far model, waits `--interrupt-grace` seconds (10s default), and only then force-kills the solver. Regardless of whether a model arrives, the log is preserved and the previous CSVs stay untouched so you can rerun with a longer limit.
 
 ## Running the solver safely
 
@@ -54,7 +54,7 @@ python3 run_solver.py --opb schedule.opb --log logs/solver.log
 ```
 
 - Use `--timeout` if you want to shorten/extend the 120 second default.
-- The wrapper returns exit code `124` on timeouts and leaves the partial log intact.
+- On timeout the wrapper now delivers `SIGINT`, waits `--interrupt-grace` seconds for SAT4J to flush a model, and returns exit code `124` if the solver never finished cleanly. The partial log is always left intact.
 - All command-line arguments are optional; the defaults match the repository layout described in the root `readme`.
 
 ## Tuning tips
