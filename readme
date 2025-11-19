@@ -1,124 +1,40 @@
-Hi, i'm working on an automatic task distributor for a tango school. 
-i have an extractor script that downloads data from a google sheet and
-creates a list of "components" (complimentary sets of tasks as defined
-by the backend) and available people based on task assignment.csv (some
-tasks are manually filled, by default the candidates are taken based on
-time and task type availability). some components have repeats, in those 
-cases the 1st is leader-only and the 2nd repeat is follower-only (backend 
-defines which members belong to which role, some can do Both). we get 
-monthly data (so 4-5 weeks, with tasks repeating weekly) 
+# Tango task distributor
 
-the encoder creates a list of sat equations to fit people to the tasks.
-to get optimal results we have some hard and soft rules (hard being - all 
-components must be assigned, one person per component, etc, the soft rules
-penalizing unwanted behavior like in-a-row repeats of the same person having
-the same task). the equations are fed to a solver that returns a solution that 
-is parsed by the consume saved model. look for ways to optimize or debug the 
-encoder as i've been getting very penalized results recently.
+This repo houses the offline pipeline that schedules weekly tango school tasks. The data snapshots in the root (CSV + backend metadata) are kept up to date so you can run the encoder + solver locally without hitting Google Sheets.
 
-instructions:
-1. extractor.py downloads the data (the data im interested in is in the repo, doesnt need changing) and compiles it (potential fixes)
-2. encode_sat_from_components.py creates the sat rules, saves as schedule.obp
-3. run: java -cp "org.ow2.sat4j.core-2.3.6.jar:org.ow2.sat4j.pb-2.3.6.jar" org.sat4j.pb.LanceurPseudo2007 schedule.opb   
-eventually it ends with the following (sometimes an optimum is found, sometimes you have to ctrl c it and just get the best found so far)
+## Workflow overview
 
-2014 with flag 17835768/694169
-c cleaning 37001 clauses out of 74020 with flag 18915476/732171
-c cleaning 38003 clauses out of 76017 with flag 19927564/771169
-c cleaning 38991 clauses out of 78013 with flag 20900923/811168
-c cleaning 40003 clauses out of 80025 with flag 21839648/852171
-c cleaning 41001 clauses out of 82021 with flag 22862813/894170
-c cleaning 41999 clauses out of 84018 with flag 23828369/937168
-c cleaning 43003 clauses out of 86020 with flag 24914131/981169
-c cleaning 43997 clauses out of 88017 with flag 26076594/1026169
-c cleaning 44996 clauses out of 90019 with flag 27413707/1072168
-c cleaning 46012 clauses out of 92029 with flag 28693232/1119174
-c cleaning 47001 clauses out of 94011 with flag 29880052/1167168
-c cleaning 47996 clauses out of 96010 with flag 31094386/1216168
-c cleaning 49004 clauses out of 98016 with flag 32280977/1266170
-c cleaning 50000 clauses out of 100012 with flag 33823964/1317170
-c cleaning 50992 clauses out of 102011 with flag 35213459/1369169
-c cleaning 51998 clauses out of 104018 with flag 36697982/1422168
-c cleaning 53007 clauses out of 106021 with flag 38179586/1476169
-c cleaning 53983 clauses out of 108013 with flag 39659862/1531168
-c cleaning 54990 clauses out of 110030 with flag 41202781/1587168
-c cleaning 56008 clauses out of 112042 with flag 42817585/1644170
-c cleaning 57005 clauses out of 114034 with flag 44620851/1702170
-c cleaning 58001 clauses out of 116027 with flag 46352281/1761168
-c cleaning 58995 clauses out of 118027 with flag 48097962/1821169
-c cleaning 59996 clauses out of 120034 with flag 49569966/1882171
-c cleaning 60999 clauses out of 122037 with flag 51223137/1944170
-c cleaning 61998 clauses out of 124036 with flag 52707529/2007168
-c cleaning 62986 clauses out of 126038 with flag 54326479/2071168
-c cleaning 64001 clauses out of 128053 with flag 56142144/2136169
-c cleaning 65009 clauses out of 130051 with flag 58063620/2202168
-c cleaning 65994 clauses out of 132042 with flag 59981106/2269168
-c cleaning 66999 clauses out of 134050 with flag 61701358/2337170
-c cleaning 68005 clauses out of 136049 with flag 63414115/2406168
-c cleaning 68996 clauses out of 138044 with flag 65225008/2476168
-c cleaning 69999 clauses out of 140049 with flag 67023905/2547169
-c cleaning 71004 clauses out of 142051 with flag 68803150/2619170
-c cleaning 71993 clauses out of 144045 with flag 70755520/2692168
-c cleaning 72994 clauses out of 146052 with flag 72725927/2766168
-c cleaning 73985 clauses out of 148059 with flag 74653042/2841169
-c cleaning 75017 clauses out of 150073 with flag 76419269/2917168
-c cleaning 76007 clauses out of 152060 with flag 78471974/2994172
-c cleaning 77005 clauses out of 154050 with flag 80503335/3072169
-c cleaning 78002 clauses out of 156051 with flag 82540410/3151175
-c cleaning 79004 clauses out of 158043 with flag 84699794/3231169
-c cleaning 79996 clauses out of 160038 with flag 86844803/3312168
-c cleaning 80998 clauses out of 162047 with flag 89095704/3394173
-c cleaning 81997 clauses out of 164045 with flag 91260176/3477169
-^Cc starts              : 208
-c conflicts             : 3506101
-c decisions             : 5599967
-c propagations          : 1485708474
-c inspects              : 19090164424
-c shortcuts             : 0
-c learnt literals       : 38
-c learnt binary clauses : 250
-c learnt ternary clauses        : 501
-c learnt constraints    : 3506063
-c ignored constraints   : 0
-c root simplifications  : 0
-c removed literals (reason simplification)      : 0
-c reason swapping (by a shorter reason) : 0
-c Calls to reduceDB     : 79
-c Number of update (reduction) of LBD   : 1143415
-c Imported unit clauses : 0
-c number of reductions to clauses (during analyze)      : 0
-c number of learned constraints concerned by reduction  : 0
-c number of learning phase by resolution        : 0
-c number of learning phase by cutting planes    : 0
-c number of rounding to 1 operations    : 0
-c number of easy rounding to 1 operations (no literal elimination needed)       : 0
-c number of reductions of the coefficients by power 2   : 0
-c number of right shift for reduction by power 2        : 0
-c number of reductions of the coefficients by GCD over coefficients     : 0
-c number of ending skipping     : 0
-c number of internal skipping   : 0
-c number of derivation steps    : 0
-c number of skipped derivation steps    : 0
-c number of remaining unassigned        : 0
-c number of remaining assigned  : 0
-c number of falsified literals weakened from reason     : 0
-c number of falsified literals weakened from conflict   : 0
-c time for arithmetic operations        : 0
-c minimum degree of deleted constraints : null
-c maximum degree of deleted constraints : null
-c number of deleted constraints : 0
-c speed (assignments/second)    : 60546.32935336302
-c non guided choices    : 2536
-c learnt constraints type org.sat4j.minisat.constraints.cnf.LearntBinaryClause  : 250
-c learnt constraints type org.sat4j.minisat.constraints.cnf.LearntWLClause      : 110730
-s SATISFIABLE
-c Found 4 solution(s)
-v x1 -x2 -x3 x4 x5 x6 -x7 -x8 x9 -x10 x11 x12 -x13 -x14 x15 x16 -x17 x18 -x19 -x20 x21 -x22 x23 -x24 -x25 x26 -x27 x28 -x29 -x30 -x31 x32 -x33 -x34 -x35 -x36 -x37 -x38 x39 -x40 -x41 x42 -x43 -x44 -x45 -x46 -x47 -x48 x49 -x50 -x51 -x52 -x53 x54 -x55 -x56 -x57 -x58 x59 x60 -x61 -x62 -x63 -x64 -x65 -x66 x67 -x68 -x69 -x70 -x71 x72 -x73 -x74 -x75 -x76 -x77 -x78 x79 -x80 -x81 x82 -x83 -x84 -x85 -x86 -x87 -x88 x89 -x90 -x91 -x92 -x93 x94 -x95 -x96 -x97 -x98 -x99 -x100 -x101 x102 -x103 -x104 -x105 x106 -x107 -x108 -x109 -x110 -x111 -x112 -x113 x114 -x115 -x116 -x117 -x118 x119 -x120 -x121 -x122 -x123 -x124 -x125 -x126 x127 -x128 -x129 -x130 x131 -x132 -x133 -x134 -x135 -x136 -x137 -x138 -x139 -x140 x141 -x142 -x143 -x144 -x145 -x146 -x147 -x148 x149 -x150 -x151 -x152 -x153 x154 -x155 -x156 -x157 -x158 -x159 -x160 -x161 x162 -x163 -x164 -x165 -x166 -x167 -x168 -x169 -x170 x171 -x172 -x173 -x174 -x175 x176 -x177 -x178 -x179 -x180 -x181 -x182 -x183 x184 -x185 -x186 -x187 x188 -x189 -x190 -x191 x192 -x193 -x194 -x195 x196 -x197 -x198 -x199 -x200 x201 x202 -x203 -x204 -x205 -x206 -x207 -x208 x209 -x210 x211 -x212 -x213 -x214 -x215 x216 -x217 -x218 -x219 -x220 -x221 x222 -x223 -x224 -x225 -x226 -x227 x228 -x229 -x230 -x231 -x232 x233 -x234 x235 -x236 -x237 -x238 -x239 -x240 -x241 -x242 x243 -x244 -x245 -x246 -x247 x248 -x249 -x250 -x251 -x252 x253 -x254 -x255 -x256 -x257 x258 -x259 -x260 -x261 -x262 -x263 x264 -x265 -x266 -x267 x268 -x269 -x270 -x271 -x272 -x273 -x274 -x275 -x276 x277 -x278 -x279 -x280 -x281 -x282 -x283 -x284 -x285 x286 -x287 -x288 -x289 -x290 -x291 -x292 -x293 x294 -x295 -x296 -x297 -x298 -x299 -x300 -x301 -x302 -x303 -x304 -x305 x306 -x307 -x308 -x309 -x310 -x311 -x312 -x313 -x314 -x315 -x316 -x317 -x318 -x319 -x320 -x321 -x322 -x323 x324 -x325 -x326 -x327 -x328 -x329 x330 -x33
+1. `python3 extractor.py`
+   - Pulls the latest Google Sheet export when needed and refreshes `components_all.csv` / `backend.csv`.
+   - The checked-in CSVs already contain the dataset that triggered the current round of debugging, so you can skip this step unless you have new data.
+2. `python3 encode_sat_from_components.py`
+   - Builds `schedule.opb`, `varmap.json`, and `stats.txt`.
+   - Automatically widens candidate pools via leader/follower sibling links, merges "Both" role expansions, and reports which families are scarcity-limited (see `auto_soften_families` in `varmap.json`).
+3. `python3 run_solver.py --opb schedule.opb --log logs/solver.log`
+   - Runs SAT4J with a **hard 120s timeout** so the workflow never hangs. Adjust `--timeout` if you want a different wall clock limit. The wrapper mirrors stdout to the terminal and to the specified log file, returning exit code `124` when it kills the solver.
+4. Paste the solver’s `v ...` model into `models.txt` and summarize it via
+   ```bash
+   python3 consume_saved_models.py \
+       --models models.txt \
+       --varmap varmap.json \
+       --components components_all.csv \
+       --metric effort \
+       --plots-bars fairness_plots_bars.png \
+       --plots-lorenz fairness_plots_lorenz.png \
+       --assigned-out assigned_optimal.csv \
+       --models-out models_summary.csv \
+       --loads-out loads_by_person.csv
+   ```
+   The resulting CSVs and charts drive the fairness/debug review.
 
+## Encoder details
 
+- Soft constraints such as cooldown ladders, repeat caps, and fairness tiers are documented in `docs/encoder.md`.
+- `stats.txt` now records whether auto-softening skipped any penalties for candidate-starved families. Combine that list with `penalties_activated.csv` to see whether the remaining penalties concentrate in better-staffed families.
+- `varmap.json` contains every objective selector plus a copy of `CONFIG`, so it is the single source of truth for the weights used in each run.
 
+## When something looks off
 
-4. the solution is pasted into models.txt
-5. run: python3 consume_saved_models.py   --models models.txt   --varmap varmap.json   --components components_all.csv   --metric effort   --plots-bars fairness_plots_bars.png   --plots-lorenz fairness_plots_lorenz.png   --assigned-out assigned_optimal.csv   --models-out models_summary.csv   --loads-out loads_by_person.csv
-
-this outputs all the data i need in the end.
+1. **Penalties feel unreasonably high even when weights change.** Check `varmap.json.auto_soften_families`. Families that do *not* appear there still pay full cooldown/repeat costs; if they only have one or two eligible people, widen their candidate pool in `components_all.csv` or the backend roles so they qualify for auto-softening.
+2. **Solver output takes too long.** Re-run via `python3 run_solver.py --timeout 90` (or any limit you prefer). The wrapper will stop SAT4J automatically, keeping the best-known model in the log so you can paste it into `models.txt`.
+3. **Need more context?** `docs/encoder.md` describes every artifact the encoder produces and how to inspect it.

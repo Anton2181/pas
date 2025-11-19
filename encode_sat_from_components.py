@@ -85,6 +85,16 @@ CONFIG = {
     "SUNDAY_TWO_DAY_SOFT": True,    # when True: allow Tue+Sun (etc) even if both AUTO; add soft penalty
     "TWO_DAY_SOFT_ALL": True,
 
+    # Auto-softening: detect families with very few eligible people and skip
+    # building the harshest cooldown/repeat penalties for them.
+    "AUTO_SOFTEN": {
+        "ENABLED": True,
+        "MIN_UNIQUE_CANDIDATES": 3,
+        "MAX_SLOTS_PER_PERSON": 1.5,
+        "RELAX_COOLDOWN": True,
+        "RELAX_REPEAT": True,
+    },
+
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- PRIORITY (Tier 1) ---
@@ -711,6 +721,55 @@ def main():
             cand[r.cid] = sorted(cset)
             is_manual[r.cid] = (len(cand[r.cid]) == 1)
 
+    auto_soften_cfg = CONFIG.get("AUTO_SOFTEN", {})
+    soften_enabled = bool(auto_soften_cfg.get("ENABLED", False))
+    min_unique = int(auto_soften_cfg.get("MIN_UNIQUE_CANDIDATES", 2))
+    max_slots_ratio = float(auto_soften_cfg.get("MAX_SLOTS_PER_PERSON", 2.0))
+    relax_cooldown = bool(auto_soften_cfg.get("RELAX_COOLDOWN", True))
+    relax_repeat = bool(auto_soften_cfg.get("RELAX_REPEAT", True))
+
+    scarce_family_notes: Dict[str, Dict[str, str]] = {}
+    if soften_enabled:
+        fam_people: Dict[str, Set[str]] = defaultdict(set)
+        fam_slots: Dict[str, int] = defaultdict(int)
+
+        for r in comps:
+            fams = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
+            fams = tuple(trim(f) for f in fams if trim(f))
+            for fam in fams:
+                fam_slots[fam] += 1
+                fam_people[fam].update(cand.get(r.cid, []))
+
+        for fam, slots in fam_slots.items():
+            uniq = len(fam_people[fam])
+            ratio = float('inf') if uniq == 0 else slots / max(1, uniq)
+            reasons: List[str] = []
+            if uniq == 0:
+                reasons.append("no_candidates")
+            if uniq <= min_unique:
+                reasons.append(f"unique<= {min_unique}")
+            if ratio >= max_slots_ratio:
+                reasons.append(f"slots/person>= {max_slots_ratio}")
+            if reasons:
+                scarce_family_notes[fam] = {
+                    "slots": str(slots),
+                    "unique_people": str(uniq),
+                    "slots_per_person": ("inf" if ratio == float('inf') else f"{ratio:.2f}"),
+                    "reasons": ", ".join(reasons),
+                }
+
+    def fam_softened_for(kind: str, fam: str) -> bool:
+        if not soften_enabled:
+            return False
+        fam = trim(fam)
+        if fam not in scarce_family_notes:
+            return False
+        if kind == "cooldown":
+            return relax_cooldown
+        if kind == "repeat":
+            return relax_repeat
+        return False
+
     # -------------------- Prebuild x-variables --------------------
     pb = PBWriter(debug_relax=DEBUG_RELAX, W_HARD=W_HARD)
 
@@ -971,8 +1030,13 @@ def main():
             if prev_w not in by_week:
                 continue
             for fam in all_fams:
-                P_any, P_pri, P_auto = fam_indicators(prev_w, fam, p)
-                C_any, C_pri, C_auto = fam_indicators(w, fam, p)
+                fam_trim = trim(fam)
+                if not fam_trim:
+                    continue
+                if fam_softened_for("cooldown", fam_trim):
+                    continue
+                P_any, P_pri, P_auto = fam_indicators(prev_w, fam_trim, p)
+                C_any, C_pri, C_auto = fam_indicators(w, fam_trim, p)
                 if P_any is None or C_any is None:
                     continue
 
@@ -994,14 +1058,14 @@ def main():
                     V_pri = make_and(pb, gate, PriEither)
                     if PRIORITY_COOLDOWN_HARD:
                         pb.add_le([(1, V_pri)], 0,
-                                  relax_label=(f"cooldown_prev_hard_PRI::fam={fam}::W{w}::{p}" if DEBUG_RELAX else None),
+                                  relax_label=(f"cooldown_prev_hard_PRI::fam={fam_trim}::W{w}::{p}" if DEBUG_RELAX else None),
                                   M=1,
-                                  info={"kind":"cooldown_prev_hard_PRI","week":str(w),"person":p,"family":fam})
+                                  info={"kind":"cooldown_prev_hard_PRI","week":str(w),"person":p,"family":fam_trim})
                     else:
-                        cooldown_viols_pri[(p, trim(fam))].append(V_pri)
-                        cooldown_gate_info[V_pri] = {"person": p, "family": trim(fam), "week": w, "gate": "either"}
+                        cooldown_viols_pri[(p, fam_trim)].append(V_pri)
+                        cooldown_gate_info[V_pri] = {"person": p, "family": fam_trim, "week": w, "gate": "either"}
 
-                    vprev_pri_by_pfam_week[(p, trim(fam), w)] = V_pri
+                    vprev_pri_by_pfam_week[(p, fam_trim, w)] = V_pri
 
                 # ----- NON-PRIORITY cooldown -----
                 # Non-priority triggers when both weeks assigned & AUTO present, but not priority on either.
@@ -1015,14 +1079,14 @@ def main():
 
                 if NONPRIORITY_COOLDOWN_HARD:
                     pb.add_le([(1, V_non)], 0,
-                              relax_label=(f"cooldown_prev_hard_NON::fam={fam}::W{w}::{p}" if DEBUG_RELAX else None),
+                              relax_label=(f"cooldown_prev_hard_NON::fam={fam_trim}::W{w}::{p}" if DEBUG_RELAX else None),
                               M=1,
-                              info={"kind":"cooldown_prev_hard_NON","week":str(w),"person":p,"family":fam})
+                              info={"kind":"cooldown_prev_hard_NON","week":str(w),"person":p,"family":fam_trim})
                 else:
-                    cooldown_viols_non[(p, trim(fam))].append(V_non)
-                    cooldown_gate_info[V_non] = {"person": p, "family": trim(fam), "week": w, "gate": "either"}
+                    cooldown_viols_non[(p, fam_trim)].append(V_non)
+                    cooldown_gate_info[V_non] = {"person": p, "family": fam_trim, "week": w, "gate": "either"}
 
-                vprev_non_by_pfam_week[(p, trim(fam), w)] = V_non
+                vprev_non_by_pfam_week[(p, fam_trim, w)] = V_non
 
     # Repeat discouragers: STREAK only (GAP removed)
     vprev_streak_vars: Dict[str, str] = {}
@@ -1091,12 +1155,17 @@ def main():
     for p in people:
         for w in weeks:
             for fam in all_fams:
+                fam_trim = trim(fam)
+                if not fam_trim:
+                    continue
+                if fam_softened_for("cooldown", fam_trim):
+                    continue
                 day_terms_any: List[str] = []
                 day_terms_pri: List[str] = []
                 day_terms_auto: List[str] = []
 
                 for d in days_named:
-                    b = fam_day_index.get((w, fam, p, d))
+                    b = fam_day_index.get((w, fam_trim, p, d))
                     if not b:
                         continue
                     D_any = make_or(pb, b["any"])
@@ -1137,16 +1206,16 @@ def main():
                         z = make_and(pb, gated, PriAny)
                         penalties.append((W1_COOLDOWN_INTRA * (COOLDOWN_GEO ** step), z))
                         cooldown_pri_ladder_vars[z] = (
-                            f"cooldown_geo::PRI::INTRA_WEEK::person={p}::family={fam}::days_used={t}::W{w}"
+                            f"cooldown_geo::PRI::INTRA_WEEK::person={p}::family={fam_trim}::days_used={t}::W{w}"
                         )
-                        cooldown_gate_info[z] = {"person": p, "family": fam, "week": w, "gate": "intra_week_auto"}
+                        cooldown_gate_info[z] = {"person": p, "family": fam_trim, "week": w, "gate": "intra_week_auto"}
                     else:
                         z = gated  # no need to AND with not-priority; PriAny is None already
                         penalties.append((W2_COOLDOWN_INTRA * (COOLDOWN_GEO ** step), z))
                         cooldown_non_ladder_vars[z] = (
-                            f"cooldown_geo::NON::INTRA_WEEK::person={p}::family={fam}::days_used={t}::W{w}"
+                            f"cooldown_geo::NON::INTRA_WEEK::person={p}::family={fam_trim}::days_used={t}::W{w}"
                         )
-                        cooldown_gate_info[z] = {"person": p, "family": fam, "week": w, "gate": "intra_week_auto"}
+                        cooldown_gate_info[z] = {"person": p, "family": fam_trim, "week": w, "gate": "intra_week_auto"}
 
     # ---------- Tier 3 ----------
     for key, X_all in person_day_X_all.items():
@@ -1286,11 +1355,16 @@ def main():
 
     for p in people:
         for fam in sorted(fam_tokens):
+            fam_trim = trim(fam)
+            if not fam_trim:
+                continue
+            if fam_softened_for("repeat", fam_trim):
+                continue
             # All PRIORITY assignments for (person p, family fam) — manual + auto
             pri_terms_pf = [
                 (1, xv(r.cid, p))
                 for r in comps
-                if r.priority and (p in cand.get(r.cid, [])) and (fam in comp_fams.get(r.cid, ()))
+                if r.priority and (p in cand.get(r.cid, [])) and (fam_trim in comp_fams.get(r.cid, ()))
             ]
 
             # Indicator that (p,fam) has at least one AUTO PRIORITY anywhere in this family (for gating)
@@ -1299,7 +1373,7 @@ def main():
                 for r in comps
                 if r.priority
                    and (p in cand.get(r.cid, []))
-                   and (fam in comp_fams.get(r.cid, ()))
+                   and (fam_trim in comp_fams.get(r.cid, ()))
                    and (not original_manual.get(r.cid, False))
             ]
             AutoPriAny_pf = make_or(pb, auto_pri_vars_pf) if auto_pri_vars_pf else None
@@ -1308,7 +1382,7 @@ def main():
             non_terms_pf = [
                 (1, xv(r.cid, p))
                 for r in comps
-                if (not r.priority) and (p in cand.get(r.cid, [])) and (fam in comp_fams.get(r.cid, ()))
+                if (not r.priority) and (p in cand.get(r.cid, [])) and (fam_trim in comp_fams.get(r.cid, ()))
             ]
 
             # ----- PRIORITY -----
@@ -1317,12 +1391,12 @@ def main():
                     pb.add_le(
                         pri_terms_pf,
                         LIMIT_PRI,
-                        relax_label=(f"repeat_limit_PRI_hard::{p}::fam={fam}" if DEBUG_RELAX else None),
+                        relax_label=(f"repeat_limit_PRI_hard::{p}::fam={fam_trim}" if DEBUG_RELAX else None),
                         M=len(pri_terms_pf),
                         info={
                             "kind": "repeat_limit_PRI_hard",
                             "person": p,
-                            "family": fam,
+                            "family": fam_trim,
                             "limit": str(LIMIT_PRI),
                         },
                     )
@@ -1337,7 +1411,7 @@ def main():
                             g_t = make_and(pb, b_t, AutoPriAny_pf)
                             penalties.append((W1_REPEAT * (REPEAT_OVER_GEO ** (over - 1)), g_t))
                             repeat_limit_pri_vars[g_t] = (
-                                f"repeat_over_geo::PRI::person={p}::family={fam}::t={t}::limit={LIMIT_PRI}"
+                                f"repeat_over_geo::PRI::person={p}::family={fam_trim}::t={t}::limit={LIMIT_PRI}"
                             )
 
             # ----- NON-PRIORITY -----
@@ -1347,7 +1421,7 @@ def main():
                     for r in comps
                     if (not r.priority)
                        and (p in cand.get(r.cid, []))
-                       and (fam in comp_fams.get(r.cid, ()))
+                       and (fam_trim in comp_fams.get(r.cid, ()))
                        and (not original_manual.get(r.cid, False))
                 ]
                 AutoNonAny_pf = make_or(pb, auto_non_vars_pf) if auto_non_vars_pf else None
@@ -1356,12 +1430,12 @@ def main():
                     pb.add_le(
                         non_terms_pf,
                         LIMIT_NON,
-                        relax_label=(f"repeat_limit_NON_hard::{p}::fam={fam}" if DEBUG_RELAX else None),
+                        relax_label=(f"repeat_limit_NON_hard::{p}::fam={fam_trim}" if DEBUG_RELAX else None),
                         M=len(non_terms_pf),
                         info={
                             "kind": "repeat_limit_NON_hard",
                             "person": p,
-                            "family": fam,
+                            "family": fam_trim,
                             "limit": str(LIMIT_NON),
                         },
                     )
@@ -1376,7 +1450,7 @@ def main():
                             g_t = make_and(pb, b_t, AutoNonAny_pf)
                             penalties.append((W2_REPEAT * (REPEAT_OVER_GEO ** (over - 1)), g_t))
                             repeat_limit_non_vars[g_t] = (
-                                f"repeat_over_geo::NON::person={p}::family={fam}::t={t}::limit={LIMIT_NON}"
+                                f"repeat_over_geo::NON::person={p}::family={fam_trim}::t={t}::limit={LIMIT_NON}"
                             )
 
     # ---------- Priority coverage (GLOBAL / FAMILY), two tiers ----------
@@ -1490,6 +1564,7 @@ def main():
         "sunday_two_day_vars": two_day_soft_vars,
         "cooldown_gate_info": cooldown_gate_info,
         "deprioritized_pair_vars": deprioritized_pair_vars,
+        "auto_soften_families": scarce_family_notes,
         "config": CONFIG
 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1528,6 +1603,19 @@ def main():
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
+    if soften_enabled:
+        if scarce_family_notes:
+            stats.append("Auto-soften: skipped cooldown/repeat penalties for these scarce families:")
+            for fam in sorted(scarce_family_notes):
+                meta = scarce_family_notes[fam]
+                stats.append(
+                    f"  • {fam}: slots={meta['slots']}, unique_people={meta['unique_people']}, "
+                    f"slots/person={meta['slots_per_person']}, reasons={meta['reasons']}"
+                )
+        else:
+            stats.append("Auto-soften: enabled but no families crossed the scarcity thresholds.")
+    else:
+        stats.append("Auto-soften: disabled via CONFIG.")
     dprio_count = len(deprioritized_pair_vars)
     stats.append(f"Deprioritized pair soft hits (potential vars): {dprio_count}")
 
