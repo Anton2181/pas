@@ -249,12 +249,19 @@ def test_visualization_script_creates_graph(tmp_path: Path) -> None:
         str(paths["backend"]),
         "--out",
         str(graph_prefix),
+        "--analysis-prefix",
+        str(tmp_path / "components_analysis"),
         "--layouts",
         "grid",
-        "spring",
+        "calendar",
     ]
     subprocess.run(cmd, check=True)
     grid_path = tmp_path / "components_graph_grid.png"
-    spring_path = tmp_path / "components_graph_spring.png"
+    calendar_path = tmp_path / "components_graph_calendar.png"
     assert grid_path.exists() and grid_path.stat().st_size > 0
-    assert spring_path.exists() and spring_path.stat().st_size > 0
+    assert calendar_path.exists() and calendar_path.stat().st_size > 0
+    hist_path = tmp_path / "components_analysis_candidate_hist.png"
+    heatmap_path = tmp_path / "components_analysis_week_day_heatmap.png"
+    scatter_path = tmp_path / "components_analysis_degree_scatter.png"
+    for chart in (hist_path, heatmap_path, scatter_path):
+        assert chart.exists() and chart.stat().st_size > 0
