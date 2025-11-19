@@ -44,3 +44,10 @@ This document summarizes every rule enforced by `encode_sat_from_components.py`,
 *Is there a rule that guarantees every person who can take a priority task actually gets one?*
 
 No. The encoder tracks a list of top- and second-priority **task names** from `backend.csv` and adds soft selectors that reward solutions covering more distinct people/families for those tasks. If a person is eligible for a priority task but no component using that task name can be assigned to them without breaking a higher-tier constraint (like cooldown spacing or fairness ladders), the solver may leave them without a priority slot. The coverage selectors only discourage duplicate assignments; they do not require one-per-person coverage. See `priority_coverage_vars_top` and `priority_coverage_vars_second` in `varmap.json` for the actual selectors tied to weights `T1C` and `T2C`.
+
+## Improving and verifying the rules
+
+- **Availability-aware fairness targets** – Tier-6 now scales each person’s load target by how many AUTO components they could legally cover. Check `varmap.json.fairness_targets` and the fairness block in `stats.txt` to confirm the scaling. Raising the `FAIRNESS_AVAILABILITY` exponent or ratio cap makes high-capacity dancers pick up more work; lowering them relaxes the distribution.
+- **Auto-softening for scarce families** – Families with too few candidates automatically skip the harshest cooldown/repeat penalties. Confirm the skip list in `stats.txt` or `varmap.json.auto_soften_families` before chasing phantom penalties.
+- **Assignment reports** – After solving, run `python3 report_assignments.py` so `reports/assignment_report.csv` lists per-person totals, repeats, and priority eligibility. That report is the fastest way to verify that fairness dials and priority selectors are delivering the intended distribution without digging through raw solver CSVs.
+- **Test suite** – `pytest` exercises every major rule combination (two-day modes, auto-softening, repeat gating, priority coverage, fairness scaling, and the reporting pipeline). If you tweak a rule, add a fixture that reproduces the scenario so regressions show up immediately.

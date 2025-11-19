@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.utils import backend_row, component_row, run_encoder_for_rows
+from tests.utils import backend_row, component_row, run_encoder_for_rows, write_components
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +159,34 @@ def test_priority_coverage_modes(tmp_path: Path, mode: str) -> None:
     assert all(token in label for label in labels)
 
 
+def test_fairness_availability_scaling(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task 1", candidates=["Alex", "Blair"]),
+        component_row(cid="C2", week="Week 1", day="Thursday", task_name="Task 2", candidates=["Alex"]),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "WEIGHTS": {
+            "FAIRNESS_AVAILABILITY": {
+                "ENABLED": True,
+                "REFERENCE": "auto",
+                "MIN_RATIO": 0.1,
+                "MAX_RATIO": 2.0,
+                "POWER": 1.0,
+            }
+        },
+    }
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="fair")
+    varmap = _load_varmap(paths["map"])
+    targets = varmap["fairness_targets"]
+    assert targets["Alex"] > targets["Blair"]
+    fairness_info = varmap["fairness_availability"]
+    assert fairness_info["Alex"]["raw_slots"] > fairness_info["Blair"]["raw_slots"]
+
+
 def test_pipeline_produces_assignments(tmp_path: Path) -> None:
     comps = [
         component_row(
@@ -278,3 +306,95 @@ def test_visualization_script_creates_graph(tmp_path: Path) -> None:
     scatter_path = tmp_path / "analysis" / f"{graph_prefix}_degree_scatter.png"
     for chart in (hist_path, heatmap_path, scatter_path):
         assert chart.exists() and chart.stat().st_size > 0
+
+
+def test_assignment_report(tmp_path: Path) -> None:
+    components = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Priority Slot",
+            candidates=["Alex", "Blair"],
+            sibling_key="Fam",
+            priority=True,
+        ),
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Repeat Slot",
+            candidates=["Alex"],
+            sibling_key="Fam",
+        ),
+        component_row(
+            cid="C3",
+            week="Week 1",
+            day="Thursday",
+            task_name="Solo Slot",
+            candidates=["Blair"],
+            sibling_key="Solo",
+        ),
+    ]
+    components_path = tmp_path / "components.csv"
+    write_components(components_path, components)
+    assigned_rows = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Priority Slot",
+            candidates=["Alex", "Blair"],
+            sibling_key="Fam",
+            priority=True,
+            assigned=True,
+            assigned_to="Alex",
+        ),
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Repeat Slot",
+            candidates=["Alex"],
+            sibling_key="Fam",
+            assigned=True,
+            assigned_to="Alex",
+        ),
+        component_row(
+            cid="C3",
+            week="Week 1",
+            day="Thursday",
+            task_name="Solo Slot",
+            candidates=["Blair"],
+            sibling_key="Solo",
+            assigned=True,
+            assigned_to="Blair",
+        ),
+    ]
+    assigned_path = tmp_path / "assigned.csv"
+    write_components(assigned_path, assigned_rows)
+    report_path = tmp_path / "report.csv"
+    summary_path = tmp_path / "summary.txt"
+    cmd = [
+        sys.executable,
+        _script_path("report_assignments.py"),
+        "--assigned",
+        str(assigned_path),
+        "--components",
+        str(components_path),
+        "--out",
+        str(report_path),
+        "--summary",
+        str(summary_path),
+    ]
+    subprocess.run(cmd, check=True)
+    rows = list(csv.DictReader(report_path.open(encoding="utf-8")))
+    assert len(rows) == 2
+    alex = next(row for row in rows if row["Person"] == "Alex")
+    blair = next(row for row in rows if row["Person"] == "Blair")
+    assert int(alex["RepeatAssignments"]) == 1
+    assert alex["RepeatFamilies"] == "Fam"
+    assert alex["ReceivedPriority"] == "YES"
+    assert blair["ReceivedPriority"] == "NO"
+    assert blair["CouldHavePriority"] == "YES"
+    assert summary_path.exists()

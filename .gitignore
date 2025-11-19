@@ -12,6 +12,7 @@ models.txt
 models_summary.csv
 penalties_activated.csv
 remaining_unassigned_only.csv
+reports/
 schedule.opb
 stats.txt
 varmap.json

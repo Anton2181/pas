@@ -78,6 +78,9 @@ DEFAULT_CONFIG = {
         "RELAX_REPEAT": True,
     },
 
+    "FAIR_MEAN_MULTIPLIER": 0.9,
+    "FAIR_OVER_START_DELTA": 2,
+
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- PRIORITY (Tier 1) ---
@@ -108,9 +111,14 @@ DEFAULT_CONFIG = {
         "W6_OVER": 2,  # Over-load ladder base multiplier
         "W6_UNDER": 5,  # Under-load ladder base multiplier
 
-        # Fairness (Tier-6) dials
-        "FAIR_MEAN_MULTIPLIER": 0.9,  # multiply the computed global mean before building fairness ladders
-        "FAIR_OVER_START_DELTA": 2,  # integer offset added to the (possibly scaled) mean for OVER thresholds
+        # Availability-aware fairness scaling (Tier-6 helper)
+        "FAIRNESS_AVAILABILITY": {
+            "ENABLED": True,
+            "REFERENCE": "auto",  # "auto" or "all"
+            "MIN_RATIO": 0.35,
+            "MAX_RATIO": 1.85,
+            "POWER": 0.75,
+        },
 
         # --- Priority coverage pressure ---
         "T1C": 100_000_000,  # Encourage wide coverage of TOP-priority tasks
@@ -1327,6 +1335,34 @@ def _encode(args):
     mean_scaled = max(1, int((mean_base * FAIR_MEAN_MULTIPLIER + 0.9999999)))
     # final target for building ladders
     mean_target = max(1, mean_scaled + FAIR_OVER_START_DELTA)
+    fairness_avail_cfg = CONFIG["WEIGHTS"].get("FAIRNESS_AVAILABILITY", {})
+    fairness_avail_enabled = bool(fairness_avail_cfg.get("ENABLED"))
+    fairness_reference = fairness_avail_cfg.get("REFERENCE", "auto").lower()
+    fairness_min_ratio = float(fairness_avail_cfg.get("MIN_RATIO", 0.25))
+    fairness_max_ratio = float(fairness_avail_cfg.get("MAX_RATIO", 2.0))
+    fairness_power = float(fairness_avail_cfg.get("POWER", 1.0))
+
+    candidate_effort_total: Dict[str, int] = defaultdict(int)
+    candidate_effort_auto: Dict[str, int] = defaultdict(int)
+    for r in comps:
+        tc = max(1, int(r.task_count))
+        is_manual_flag = bool(original_manual.get(r.cid, False))
+        for p in cand.get(r.cid, []):
+            candidate_effort_total[p] += tc
+            if not is_manual_flag:
+                candidate_effort_auto[p] += tc
+
+    if fairness_reference not in {"auto", "all"}:
+        fairness_reference = "auto"
+    fairness_counts_map = candidate_effort_auto if fairness_reference == "auto" else candidate_effort_total
+    fairness_counts_mean = max(
+        1.0,
+        (sum(fairness_counts_map.get(p, 0) for p in people) / len(people)) if people else 1.0,
+    )
+
+    fairness_targets: Dict[str, int] = {}
+    fairness_target_notes: Dict[str, Dict[str, float | int]] = {}
+
     def log_thresholds_from(start: int, U: int, base: int) -> List[int]:
         """Monotone increasing thresholds starting from 'start', doubling by 'base' (>=2), capped at U."""
         if start > U:
@@ -1350,8 +1386,28 @@ def _encode(args):
         if not terms_p or U_p <= 0:
             continue
 
+        if fairness_avail_enabled:
+            raw_slots = fairness_counts_map.get(p, 0)
+            ratio = raw_slots / fairness_counts_mean if fairness_counts_mean > 0 else 1.0
+            ratio = max(fairness_min_ratio, min(fairness_max_ratio, ratio))
+            scale = ratio ** fairness_power
+            person_target = max(1, int(round(mean_target * scale)))
+        else:
+            raw_slots = fairness_counts_map.get(p, 0)
+            ratio = 1.0
+            scale = 1.0
+            person_target = mean_target
+
+        fairness_targets[p] = person_target
+        fairness_target_notes[p] = {
+            "raw_slots": raw_slots,
+            "ratio": ratio,
+            "scale": scale,
+            "target": person_target,
+        }
+
         # -------- OVER-load ladder
-        over_thresholds = log_thresholds_from(mean_target + 1, U_p, REPEAT_OVER_GEO)
+        over_thresholds = log_thresholds_from(person_target + 1, U_p, REPEAT_OVER_GEO)
         for idx, t in enumerate(over_thresholds, start=1):
             b_over = pb.new_var()
             pb.add_le(terms_p + [(-U_p, b_over)], t - 1)
@@ -1359,11 +1415,11 @@ def _encode(args):
 
         # -------- UNDER-load ladder
         under_candidates = sorted({
-            max(0, (mean_target * 1) // 2),
-            max(0, (mean_target * 3) // 4),
-            max(0, mean_target - 1),
+            max(0, (person_target * 1) // 2),
+            max(0, (person_target * 3) // 4),
+            max(0, person_target - 1),
         })
-        under_thresholds = [t for t in under_candidates if 0 < t <= mean_target - 1]
+        under_thresholds = [t for t in under_candidates if 0 < t <= person_target - 1]
         for idx, t in enumerate(under_thresholds, start=1):
             b_under = pb.new_var()
             # S_p + t * b_under >= t
@@ -1595,6 +1651,8 @@ def _encode(args):
         "cooldown_gate_info": cooldown_gate_info,
         "deprioritized_pair_vars": deprioritized_pair_vars,
         "auto_soften_families": softener.notes,
+        "fairness_targets": fairness_targets,
+        "fairness_availability": fairness_target_notes,
         "config": CONFIG
 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1633,6 +1691,19 @@ def _encode(args):
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
+    if fairness_avail_enabled:
+        stats.append(
+            "Fairness availability scaling: "
+            f"ref={fairness_reference}, power={fairness_power}, ratio_floor={fairness_min_ratio}, cap={fairness_max_ratio}, "
+            f"mean_slots={fairness_counts_mean:.2f}"
+        )
+        if fairness_targets:
+            lowest = sorted(fairness_targets.items(), key=lambda kv: kv[1])[:3]
+            highest = sorted(fairness_targets.items(), key=lambda kv: kv[1])[-3:]
+            if lowest:
+                stats.append("  • Lowest targets: " + ", ".join(f"{name}:{target}" for name, target in lowest))
+            if highest:
+                stats.append("  • Highest targets: " + ", ".join(f"{name}:{target}" for name, target in highest))
     if softener.enabled:
         if softener.notes:
             stats.append("Auto-soften: skipped cooldown/repeat penalties for these scarce families:")
