@@ -18,7 +18,7 @@ This document summarizes every rule enforced by `encode_sat_from_components.py`,
    - *Cooldown ladder* (`W1_COOLDOWN`) – penalizes consecutive priority-family assignments that violate cooldown spacing.
    - *Repeat-over ladder* (`W1_REPEAT`) – exponential penalty (`REPEAT_OVER_GEO` base) once a person exceeds `REPEAT_LIMIT['PRI']` for the same family.
    - *Streak penalty* (`W1_STREAK`) – discourages back-to-back weeks on the same priority family.
-   - *Priority miss guard* (`W_PRIORITY_MISS`) – per-person selector that fires when someone who could have taken a top-priority task receives none. This sits next to the coverage selectors so solvers pay a steep price for skipping eligible dancers entirely.
+   - *Priority miss guard* (`W_PRIORITY_MISS`) – per-person selector that fires when someone who could have taken a top-priority task receives none. When set, this weight **replaces** the `T1C` top-coverage weight instead of stacking with it, so skipping an eligible dancer is still expensive without double-charging the objective.
 
 2. **Tier 2 (Non-priority families)**
    - Identical cooldown/repeat/streak ladders with weights `W2_COOLDOWN`, `W2_REPEAT`, `W2_STREAK`.
@@ -44,7 +44,7 @@ This document summarizes every rule enforced by `encode_sat_from_components.py`,
 
 *Is there a rule that guarantees every person who can take a priority task actually gets one?*
 
-Not as a hard constraint, but two sets of selectors now make it extremely expensive to skip them. The encoder still uses `T1C`/`T2C` coverage selectors to reward spreading top/second-priority tasks across people or families, **and** it adds a `W_PRIORITY_MISS` guard for every person who could cover a top-priority slot but ends up with none. The guard is a large soft penalty (documented above) rather than a hard ban, so the solver can still leave someone without a top task when no feasible assignment exists—but only after paying both the guard and coverage costs. Inspect `priority_required_vars` plus the coverage maps in `varmap.json` to see which selectors fired.
+Not as a hard constraint, but the coverage selectors make it costly to skip them. `T1C`/`T2C` reward spreading top/second-priority tasks across people or families. If you also set `W_PRIORITY_MISS`, that weight replaces `T1C` for the top tier so each eligible person incurs **one** strong penalty when they receive zero top tasks. The guard remains a soft penalty rather than a ban, so the solver can still leave someone without a top slot when no feasible assignment exists—but without double-counting the miss. Inspect `priority_required_vars` plus the coverage maps in `varmap.json` to see which selectors fired.
 
 ## Improving and verifying the rules
 

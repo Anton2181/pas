@@ -728,6 +728,17 @@ def make_and_not(pb: PBWriter, d: str, a: str | None) -> str:
     pb.add_le([(1, d), (-1, a), (-1, y)], 0)
     return y
 
+
+def _find_duplicates(weighted_vars: List[Tuple[int, str]]) -> Set[Tuple[int, str]]:
+    seen: Set[Tuple[int, str]] = set()
+    duplicates: Set[Tuple[int, str]] = set()
+    for pair in weighted_vars:
+        if pair in seen:
+            duplicates.add(pair)
+        else:
+            seen.add(pair)
+    return duplicates
+
 # -------------------- Encoder --------------------
 def _encode(args):
     DEBUG_RELAX = bool(CONFIG["DEBUG_RELAX"])
@@ -1701,14 +1712,13 @@ def _encode(args):
         top_any_by_person[p] = TopAny
         top_miss_by_person[p] = z_miss
         priority_required_vars[z_miss] = f"priority_required::person={p}"
-        if W_PRIORITY_MISS > 0:
-            penalties.append((W_PRIORITY_MISS, z_miss))
 
     if PRIORITY_COVERAGE_MODE == "global":
         # TOP (independent)
+        top_weight = W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C
         for p in sorted(top_miss_by_person):
             z = top_miss_by_person[p]
-            penalties.append((T1C, z))
+            penalties.append((top_weight, z))
             priority_coverage_vars_top[z] = f"priority_coverage_TOP::GLOBAL::person={p}"
 
         # SECOND (gated by NOT already TOP: penalty only if neither TOP nor SECOND)
@@ -1746,7 +1756,7 @@ def _encode(args):
                 TopAny_pf = make_or(pb, x_top_pf)
                 z = pb.new_var()
                 pb.add_eq([(1, z), (1, TopAny_pf)], 1)
-                penalties.append((T1C, z))
+                penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
                 priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
 
         # SECOND (gated by NOT already TOP in same family: penalty only if neither TOP nor SECOND in that family)
@@ -1771,18 +1781,12 @@ def _encode(args):
                 priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::FAMILY::person={p}::family={fam}"
 
     # Objective and dump
-    deduped_penalties: List[Tuple[int, str]] = []
-    seen_penalties = set()
-    duplicate_penalties_dropped = 0
-    for weight, var in penalties:
-        key = (weight, var)
-        if key in seen_penalties:
-            duplicate_penalties_dropped += 1
-            continue
-        seen_penalties.add(key)
-        deduped_penalties.append((weight, var))
+    duplicate_penalties = _find_duplicates(penalties)
+    if duplicate_penalties:
+        dup_descriptions = ", ".join(sorted({f"{w}:{v}" for w, v in duplicate_penalties}))
+        raise ValueError(f"Duplicate penalties detected: {dup_descriptions}")
 
-    pb.set_objective(deduped_penalties)
+    pb.set_objective(penalties)
     pb.dump(args.out)
 
     # Map / debug
@@ -1839,7 +1843,6 @@ def _encode(args):
         f"People: {len(people)}",
         f"Components: {len(comps)}",
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
-        f"Duplicate penalties dropped: {duplicate_penalties_dropped}",
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
@@ -1862,8 +1865,8 @@ def _encode(args):
         f"Tier-6 across-horizon total-effort fairness (log-ladder): W6_OVER={W6_OVER}, W6_UNDER={W6_UNDER}.",
         f"Tier-6 fairness mean: base={mean_base}, scaled={mean_scaled}, target(with delta)={mean_target} "
         f"(FAIR_MEAN_MULTIPLIER={FAIR_MEAN_MULTIPLIER}, FAIR_OVER_START_DELTA={FAIR_OVER_START_DELTA})",
-        f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): T1C={T1C} (TOP), T2C={T2C} (SECOND; ignored if TOP already).",
-        f"Priority miss guard (per TOP-eligible person): W_PRIORITY_MISS={W_PRIORITY_MISS}.",
+        f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): TOP weight={W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C}, "
+        f"T2C={T2C} (SECOND; ignored if TOP already).",
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
