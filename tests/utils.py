@@ -166,7 +166,7 @@ def run_encoder_for_rows(
     out = tmp_path / f"{prefix}_schedule.opb"
     map_path = tmp_path / f"{prefix}_varmap.json"
     stats_path = tmp_path / f"{prefix}_stats.txt"
-    registry_path = tmp_path / f"{prefix}_family_registry.csv"
+    registry_path = tmp_path / f"{prefix}_family_registry.json"
 
     encoder.run_encoder(
         components=comp_path,

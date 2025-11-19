@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
                     help="JSON array of experiments with 'name', optional 'overrides' and 'scales'")
     ap.add_argument("--components", type=Path, default=Path("components_all.csv"))
     ap.add_argument("--backend", type=Path, default=Path("backend.csv"))
-    ap.add_argument("--family-registry", type=Path, default=Path("family_registry.csv"))
+    ap.add_argument("--family-registry", type=Path, default=Path("family_registry.json"))
     ap.add_argument("--base-config", type=Path,
                     help="Optional JSON overrides applied before per-experiment scales/overrides")
     ap.add_argument("--out-dir", type=Path, default=Path("experiments"))

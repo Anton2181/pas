@@ -135,6 +135,29 @@ def test_repeat_penalty_skips_manual_only(tmp_path: Path) -> None:
     assert varmap["repeat_limit_non_vars"] == {}
 
 
+def test_family_registry_includes_tasks(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex"], sibling_key="Fam"),
+        component_row(cid="C2", week="Week 1", day="Wednesday", task_name="Task B", candidates=["Alex"], sibling_key="Fam"),
+    ]
+    backend = [backend_row("Alex")]
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=comps,
+        backend=backend,
+        overrides={"AUTO_SOFTEN": {"ENABLED": False}, "BANNED_SIBLING_PAIRS": [], "BANNED_SAME_DAY_PAIRS": []},
+        prefix="registry",
+    )
+
+    registry = json.loads(paths["family_registry"].read_text(encoding="utf-8"))
+    fams = {entry["canonical"]: entry for entry in registry.get("families", [])}
+    assert "Fam" in fams
+
+    comp_map = {c["id"]: set(c.get("tasks", [])) for c in fams["Fam"].get("components", [])}
+    assert comp_map == {"C1": {"Task A"}, "C2": {"Task B"}}
+
+
 @pytest.mark.parametrize("mode", ["global", "family"])
 def test_priority_coverage_modes(tmp_path: Path, mode: str) -> None:
     comps = [

@@ -177,8 +177,8 @@ def parse_args():
     ap.add_argument("--out",              default="schedule.opb",      type=Path)
     ap.add_argument("--map",              default="varmap.json",       type=Path)
     ap.add_argument("--stats",            default="stats.txt",         type=Path)
-    ap.add_argument("--family-registry", default="family_registry.csv", type=Path,
-                    help="CSV that stores canonical family tokens + human-friendly aliases")
+    ap.add_argument("--family-registry", default="family_registry.json", type=Path,
+                    help="JSON registry of canonical family tokens, aliases, and component membership")
     ap.add_argument("--config", type=Path, help="Optional JSON file with CONFIG overrides")
     return ap.parse_args()
 
@@ -299,14 +299,28 @@ class FamilyRegistry:
 
     path: Path
     mapping: Dict[str, str] = field(default_factory=dict)
-    components: Dict[str, Set[str]] = field(default_factory=dict)
+    components: Dict[str, Dict[str, Set[str]]] = field(default_factory=dict)
     order: List[str] = field(default_factory=list)
 
-    @staticmethod
-    def _parse_components(raw: str | None) -> Set[str]:
-        if not raw:
-            return set()
-        return {c for c in (piece.strip() for piece in raw.split(";")) if c}
+    def _write_json(self) -> None:
+        payload = {
+            "families": [
+                {
+                    "canonical": fam,
+                    "alias": trim(self.mapping.get(fam, "")),
+                    "components": [
+                        {
+                            "id": cid,
+                            "tasks": sorted(tasks),
+                        }
+                        for cid, tasks in sorted(self.components.get(fam, {}).items())
+                    ],
+                }
+                for fam in self.order
+            ]
+        }
+        with self.path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
 
     def load(self) -> None:
         self.mapping = {}
@@ -314,44 +328,29 @@ class FamilyRegistry:
         self.order = []
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
-            with self.path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.writer(handle)
-                writer.writerow(["CanonicalFamily", "Alias", "Components"])
+            self._write_json()
             return
 
-        with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            if reader.fieldnames:
-                for row in reader:
-                    fam = trim(row.get("CanonicalFamily") or row.get("Family") or row.get(reader.fieldnames[0]) or "")
-                    alias = trim(
-                        row.get("Alias")
-                        or row.get("Label")
-                        or (row.get(reader.fieldnames[1]) if len(reader.fieldnames) > 1 else "")
-                    )
-                    comps_raw = row.get("Components") if "Components" in (reader.fieldnames or []) else None
-                    comps = self._parse_components(comps_raw)
-                    if fam:
-                        self.order.append(fam)
-                        self.mapping[fam] = alias
-                        self.components[fam] = comps
-                return
-
-        # Fallback to raw rows if headers were removed manually
-        with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
-            for row in csv.reader(handle):
-                if not row:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {"families": []}
+        for entry in data.get("families", []):
+            fam = trim(entry.get("canonical", ""))
+            alias = trim(entry.get("alias", ""))
+            comps: Dict[str, Set[str]] = {}
+            for comp in entry.get("components", []) or []:
+                cid = trim(comp.get("id", ""))
+                if not cid:
                     continue
-                fam = trim(row[0])
-                if not fam or fam.lower() == "canonicalfamily":
-                    continue
-                alias = trim(row[1]) if len(row) > 1 else ""
-                comps = self._parse_components(row[2] if len(row) > 2 else "")
+                tasks = {trim(t) for t in (comp.get("tasks") or []) if trim(t)}
+                comps[cid] = tasks
+            if fam:
                 self.order.append(fam)
                 self.mapping[fam] = alias
                 self.components[fam] = comps
 
-    def sync(self, families_in_order: Iterable[str], fam_components: Dict[str, Set[str]] | None = None) -> None:
+    def sync(self, families_in_order: Iterable[str], fam_components: Dict[str, Dict[str, Set[str]]] | None = None) -> None:
         fam_components = fam_components or {}
         seen_new: Set[str] = set()
         for fam in families_in_order:
@@ -369,18 +368,14 @@ class FamilyRegistry:
             fam_trim = trim(fam)
             if not fam_trim:
                 continue
-            merged = self.components.get(fam_trim, set()) | {c for c in comps if c}
+            merged = {k: set(v) for k, v in self.components.get(fam_trim, {}).items()}
+            for cid, tasks in comps.items():
+                if not cid:
+                    continue
+                merged.setdefault(cid, set()).update({t for t in tasks if t})
             self.components[fam_trim] = merged
 
-        with self.path.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(["CanonicalFamily", "Alias", "Components"])
-            for fam in self.order:
-                writer.writerow([
-                    fam,
-                    trim(self.mapping.get(fam, "")),
-                    ";".join(sorted(self.components.get(fam, set()))),
-                ])
+        self._write_json()
 
     def label(self, fam: str) -> str:
         alias = trim(self.mapping.get(fam, ""))
@@ -798,10 +793,10 @@ def _encode(args):
         # Preserve prior logic that 'priority' drives cooldown/repeat as TOP-only:
         r.priority = bool(r.is_top)
 
-    family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.csv"))))
+    family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.json"))))
     family_registry.load()
 
-    family_components: Dict[str, Set[str]] = defaultdict(set)
+    family_components: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
 
     def ordered_family_tokens() -> List[str]:
         order: List[str] = []
@@ -812,7 +807,7 @@ def _encode(args):
                 fam_trim = trim(fam)
                 if not fam_trim:
                     continue
-                family_components[fam_trim].add(comp.cid)
+                family_components[fam_trim][comp.cid].update(comp.names)
                 if fam_trim in seen:
                     continue
                 seen.add(fam_trim)
@@ -1815,7 +1810,7 @@ def _encode(args):
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
         "cooldown_gate_info": cooldown_gate_info,
-        "family_registry_path": str(getattr(args, "family_registry", "family_registry.csv")),
+        "family_registry_path": str(getattr(args, "family_registry", "family_registry.json")),
         "family_labels": family_labels,
         "deprioritized_pair_vars": deprioritized_pair_vars,
         "auto_soften_families": auto_soften_notes,
@@ -1861,7 +1856,7 @@ def _encode(args):
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
     stats.append(
-        f"Family registry: {getattr(args, 'family_registry', 'family_registry.csv')} (tracked {len(family_labels)} families)"
+        f"Family registry: {getattr(args, 'family_registry', 'family_registry.json')} (tracked {len(family_labels)} families)"
     )
     if fairness_avail_enabled:
         stats.append(
@@ -1926,7 +1921,7 @@ def run_encoder(
         out=out,
         map=map_path,
         stats=stats_path,
-        family_registry=family_registry or Path("family_registry.csv"),
+        family_registry=family_registry or Path("family_registry.json"),
         config=None,
     )
     encode_with_args(args, overrides=overrides)
