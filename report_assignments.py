@@ -164,7 +164,7 @@ def write_summary(rows: List[Dict[str, str]], path: Path) -> None:
     else:
         total = sum(int(row["TotalTasks"]) for row in rows)
         lines.append(f"People with assignments: {len(rows)} (total tasks={total})")
-        no_prio = [row["Person"] for row in rows if row["PriorityTasks"] == 0]
+        no_prio = [row["Person"] for row in rows if ["PriorityTasks"] == 0 and row["CouldHavePriority"] == "YES"]
         if no_prio:
             lines.append("People without priority work: " + ", ".join(no_prio))
         repeat_heavy = [row for row in rows if int(row["RepeatAssignments"]) > 0]

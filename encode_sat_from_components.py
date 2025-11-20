@@ -122,17 +122,18 @@ DEFAULT_CONFIG = {
         },
 
         # --- Priority coverage pressure ---
-        "T1C": 1_000_000_000,  # Encourage wide coverage of TOP-priority tasks
+        "T1C": 100_000_000_000_000_000,  # Encourage wide coverage of TOP-priority tasks
         "T2C": 500_000_000,  # Encourage SECOND-priority, gated by not already TOP
 
         # --- Two-day rule softening ---
-        "W_SUNDAY_TWO_DAY": 1_500_000_000,  # Soft cost for Sunday-inclusive pairs when softened
+        "W_SUNDAY_TWO_DAY": 10_000_000_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
         "W_TWO_DAY_SOFT": 2_000_000_000,
         # Soft cost when two named days aren’t BOTH manual (soft modes)
     },
 
     # Banned unordered person pairs
     "BANNED_SIBLING_PAIRS": [
+        ["Yulia Talybova", "Marius Latinis"],
         ["Sylwia Woźniak", "Marius Latinis"],
     ],
     "BANNED_SAME_DAY_PAIRS": [
