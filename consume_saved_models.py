@@ -231,9 +231,27 @@ def decode_pairs(true_vars: List[str], x_to_label: Dict[str,str]) -> List[Tuple[
                 pairs.append((cid, person))
     return pairs
 
+def compute_manual_loads(comp_rows: List[Dict[str,str]], comp_info: Dict[str, Dict[str,float]],
+                        metric: str) -> Tuple[Set[str], Dict[str,float]]:
+    manual_components: Set[str] = set()
+    manual_loads: Dict[str,float] = {}
+
+    for r in comp_rows:
+        if (r.get("Assigned?","").strip().upper() == "YES") and (r.get("Assigned To","").strip()):
+            cid = (r.get("ComponentId") or "").strip()
+            person = (r.get("Assigned To") or "").strip()
+            if cid:
+                manual_components.add(cid)
+            if cid and person:
+                manual_loads[person] = manual_loads.get(person, 0.0) + pick_weight_for_component(cid, metric, comp_info)
+
+    return manual_components, manual_loads
+
+
 def compute_fairness(schedule_pairs: List[Tuple[str,str]], metric: str,
-                     comp_info: Dict[str, Dict[str,float]]) -> Tuple[Tuple[float,float,float], Dict[str,float]]:
-    loads: Dict[str, float] = {}
+                     comp_info: Dict[str, Dict[str,float]], base_loads: Dict[str,float] | None = None
+                     ) -> Tuple[Tuple[float,float,float], Dict[str,float]]:
+    loads: Dict[str, float] = dict(base_loads) if base_loads else {}
     for cid, person in schedule_pairs:
         loads[person] = loads.get(person, 0.0) + pick_weight_for_component(cid, metric, comp_info)
     if not loads:
@@ -278,6 +296,7 @@ def main():
     x_to_label, penalty_maps, config = read_varmap(args.varmap)
     comp_rows, comp_info = load_components_info(args.components)
     comp_week, comp_fams, manual_cids_from_input = extract_comp_meta(comp_rows)
+    manual_components_from_input, manual_loads_by_person = compute_manual_loads(comp_rows, comp_info, args.metric)
 
     models_summary: List[Dict[str,str]] = []
     best_idx = -1
@@ -290,7 +309,7 @@ def main():
 
     for idx, true_vars in enumerate(models_true_vars, start=1):
         pairs = decode_pairs(true_vars, x_to_label)
-        score, loads = compute_fairness(pairs, args.metric, comp_info)
+        score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
         acts, counts, unknown_true = find_penalties(true_vars, penalty_maps)
 
         models_summary.append({
@@ -336,33 +355,20 @@ def main():
         w.writerows(models_summary)
 
     # loads_by_person.csv — split Manual vs Auto
-    manual_components_from_input: Set[str] = set()
-    for r in comp_rows:
-        if (r.get("Assigned?","").strip().upper() == "YES") and (r.get("Assigned To","").strip()):
-            cid = (r.get("ComponentId") or "").strip()
-            if cid: manual_components_from_input.add(cid)
-
-    manual_loads: Dict[str,float] = {}
-    for r in comp_rows:
-        cid = (r.get("ComponentId") or "").strip()
-        person = (r.get("Assigned To") or "").strip()
-        if cid and person and (cid in manual_components_from_input):
-            manual_loads[person] = manual_loads.get(person, 0.0) + pick_weight_for_component(cid, args.metric, comp_info)
-
     auto_loads: Dict[str,float] = {}
     for cid, person in best_pairs:
         if cid in manual_components_from_input: continue
         auto_loads[person] = auto_loads.get(person, 0.0) + pick_weight_for_component(cid, args.metric, comp_info)
 
-    all_people = sorted(set(list(manual_loads.keys()) + list(auto_loads.keys())))
-    totals = {p: manual_loads.get(p,0.0) + auto_loads.get(p,0.0) for p in all_people}
+    all_people = sorted(set(list(manual_loads_by_person.keys()) + list(auto_loads.keys())))
+    totals = {p: manual_loads_by_person.get(p,0.0) + auto_loads.get(p,0.0) for p in all_people}
 
     with open(args.loads_out, 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
         w.writerow(["Person","ManualLoad","AutoLoad","TotalLoad"])
         for p in sorted(all_people, key=lambda x: (totals.get(x,0.0), x)):
             w.writerow([p,
-                        f"{manual_loads.get(p,0.0):.6f}",
+                        f"{manual_loads_by_person.get(p,0.0):.6f}",
                         f"{auto_loads.get(p,0.0):.6f}",
                         f"{totals.get(p,0.0):.6f}"])
 
@@ -404,7 +410,7 @@ def main():
     try:
         import matplotlib.pyplot as plt
         people_sorted = sorted(all_people, key=lambda p: (totals.get(p,0.0), p))
-        manual_vals = [manual_loads.get(p, 0.0) for p in people_sorted]
+        manual_vals = [manual_loads_by_person.get(p, 0.0) for p in people_sorted]
         auto_vals   = [auto_loads.get(p, 0.0) for p in people_sorted]
         total_vals  = [totals.get(p, 0.0) for p in people_sorted]
 
