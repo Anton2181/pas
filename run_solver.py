@@ -2,6 +2,7 @@
 """Run SAT4J with a hard timeout and immediately summarize the best model."""
 from __future__ import annotations
 import argparse
+import os
 import signal
 import subprocess
 import sys
@@ -96,7 +97,20 @@ def run_consumer(args: argparse.Namespace, models_path: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    classpath = f"{args.core_jar}:{args.pb_jar}"
+    script_dir = Path(__file__).resolve().parent
+
+    def resolve_jar(path: Path) -> Path:
+        if path.exists():
+            return path
+        if not path.is_absolute():
+            candidate = script_dir / path
+            if candidate.exists():
+                return candidate
+        raise SystemExit(f"[run_solver] Unable to locate jar: {path}")
+
+    core_jar = resolve_jar(Path(args.core_jar))
+    pb_jar = resolve_jar(Path(args.pb_jar))
+    classpath = os.pathsep.join([str(core_jar), str(pb_jar)])
     cmd = [
         "java",
         "-cp",

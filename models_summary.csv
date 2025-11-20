@@ -1,2 +1,0 @@
-idx,objective,max_load,imbalance,min_load,num_assignments,n_CooldownPRI,n_CooldownNON,n_CooldownStreak,n_CooldownNonConsec,n_CooldownGeoPRI,n_CooldownGeoNON,n_RepeatOverPRI,n_RepeatOverNON,n_BothFallback,n_PreferredMiss,n_PriorityCoverage,n_OneTaskDay,n_TwoDaySoft,n_DeprioritizedPair,n_DebugRelax
-1,,37.500000,125.565217,2.500000,176,0,0,0,0,0,15,0,29,0,13,1,0,22,7,0

@@ -1,0 +1,1960 @@
+{
+  "families": [
+    {
+      "canonical": "Conducting the lesson - Wednesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C101",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C102",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C103",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C104",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C105",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C106",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C107",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C108",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C109",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C110",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C111",
+          "tasks": [
+            "Conducting the lesson / Advanced - Tuesday",
+            "Preparation for the Lesson / Advanced - Tuesday"
+          ]
+        },
+        {
+          "id": "C12",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C15",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C17",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C24",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C29",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C30",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C32",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C35",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C37",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C4",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C44",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C49",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C50",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C52",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C55",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C57",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C64",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C69",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C70",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C72",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C75",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C77",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C84",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C89",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C9",
+          "tasks": [
+            "Conducting the lesson / Teacher - Tuesday",
+            "Preparation for the Lesson / Teachers - Tuesday"
+          ]
+        },
+        {
+          "id": "C90",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C92",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        },
+        {
+          "id": "C95",
+          "tasks": [
+            "Conducting the lesson / Intermediate - Wednesday",
+            "Preparation for the Lesson / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C97",
+          "tasks": [
+            "Conducting the lesson - Wednesday",
+            "Preparation for the Lesson / Teachers - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Assisting the lesson - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C11",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C16",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C23",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C28",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C3",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C31",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C36",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C43",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C48",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C51",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C56",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C63",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C68",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C71",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C76",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C8",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C83",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C88",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C91",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C96",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Preparation for the Lesson / Assistant - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C11",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C123",
+          "tasks": [
+            "Take Care of Newcomers - Tuesday"
+          ]
+        },
+        {
+          "id": "C131",
+          "tasks": [
+            "Take Care of Newcomers - Wednesday"
+          ]
+        },
+        {
+          "id": "C136",
+          "tasks": [
+            "Take Care of Newcomers - Tuesday"
+          ]
+        },
+        {
+          "id": "C144",
+          "tasks": [
+            "Take Care of Newcomers - Wednesday"
+          ]
+        },
+        {
+          "id": "C149",
+          "tasks": [
+            "Take Care of Newcomers - Tuesday"
+          ]
+        },
+        {
+          "id": "C157",
+          "tasks": [
+            "Take Care of Newcomers - Wednesday"
+          ]
+        },
+        {
+          "id": "C16",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C162",
+          "tasks": [
+            "Take Care of Newcomers - Tuesday"
+          ]
+        },
+        {
+          "id": "C170",
+          "tasks": [
+            "Take Care of Newcomers - Wednesday"
+          ]
+        },
+        {
+          "id": "C175",
+          "tasks": [
+            "Take Care of Newcomers - Tuesday"
+          ]
+        },
+        {
+          "id": "C183",
+          "tasks": [
+            "Take Care of Newcomers - Wednesday"
+          ]
+        },
+        {
+          "id": "C23",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C28",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C3",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C31",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C36",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C43",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C48",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C51",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C56",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C63",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C68",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C71",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C76",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C8",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C83",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C88",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C91",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C96",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Registrations / Beginners - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C1",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C11",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C130",
+          "tasks": [
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C143",
+          "tasks": [
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C156",
+          "tasks": [
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C16",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C169",
+          "tasks": [
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C182",
+          "tasks": [
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C21",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C23",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C28",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C3",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C31",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C36",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C41",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C43",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C48",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C51",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C56",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C61",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C63",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C68",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C71",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C76",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C8",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C81",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C83",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C88",
+          "tasks": [
+            "Assisting the lesson - Tuesday",
+            "Preparation for the Lesson / Assistant - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C91",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        },
+        {
+          "id": "C96",
+          "tasks": [
+            "Assisting the lesson - Wednesday",
+            "Preparation for the Lesson / Assistant - Wednesday",
+            "Registrations / Beginners - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Planning of the Month / Teachers and Assistants",
+      "alias": "",
+      "components": [
+        {
+          "id": "C112",
+          "tasks": [
+            "Planning of the Month / Teachers and Assistants"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Planning of the Month / Registrations",
+      "alias": "",
+      "components": [
+        {
+          "id": "C113",
+          "tasks": [
+            "Planning of the Month / Registrations"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Planning of the Month / Master of Cerimony",
+      "alias": "",
+      "components": [
+        {
+          "id": "C114",
+          "tasks": [
+            "Planning of the Month / Master of Cerimony"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Planning of the Month / Food Supply",
+      "alias": "",
+      "components": [
+        {
+          "id": "C115",
+          "tasks": [
+            "Planning of the Month / Food Supply"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Monthly Monitoring",
+      "alias": "",
+      "components": [
+        {
+          "id": "C116",
+          "tasks": [
+            "Monthly Monitoring"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Monthly Report",
+      "alias": "",
+      "components": [
+        {
+          "id": "C117",
+          "tasks": [
+            "Monthly Report"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Monthly Payments",
+      "alias": "",
+      "components": [
+        {
+          "id": "C119",
+          "tasks": [
+            "Monthly Payments"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "CRM Manteince",
+      "alias": "",
+      "components": [
+        {
+          "id": "C121",
+          "tasks": [
+            "CRM Manteince"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Project Management",
+      "alias": "",
+      "components": [
+        {
+          "id": "C122",
+          "tasks": [
+            "Project Management"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Registrations / Intermediate - Wednesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C128",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C129",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C141",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C142",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C154",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C155",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C167",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C168",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C180",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        },
+        {
+          "id": "C181",
+          "tasks": [
+            "Registrations / Intermediate - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Monthly Print",
+      "alias": "",
+      "components": [
+        {
+          "id": "C118",
+          "tasks": [
+            "Monthly Print"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Deistalling the Venue + Cleaning - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C13",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C25",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C33",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C45",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C5",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C53",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C65",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C73",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C85",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C93",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Master of Cerimony - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C13",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C25",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C33",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C45",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C5",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C53",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C65",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C73",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        },
+        {
+          "id": "C85",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Tuesday",
+            "Master of Cerimony - Tuesday"
+          ]
+        },
+        {
+          "id": "C93",
+          "tasks": [
+            "Deistalling the Venue + Cleaning - Wednesday",
+            "Master of Cerimony - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Social Media Posts - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C126",
+          "tasks": [
+            "Social Media Posts - Tuesday"
+          ]
+        },
+        {
+          "id": "C134",
+          "tasks": [
+            "Social Media Posts - Wednesday"
+          ]
+        },
+        {
+          "id": "C139",
+          "tasks": [
+            "Social Media Posts - Tuesday"
+          ]
+        },
+        {
+          "id": "C147",
+          "tasks": [
+            "Social Media Posts - Wednesday"
+          ]
+        },
+        {
+          "id": "C152",
+          "tasks": [
+            "Social Media Posts - Tuesday"
+          ]
+        },
+        {
+          "id": "C160",
+          "tasks": [
+            "Social Media Posts - Wednesday"
+          ]
+        },
+        {
+          "id": "C165",
+          "tasks": [
+            "Social Media Posts - Tuesday"
+          ]
+        },
+        {
+          "id": "C173",
+          "tasks": [
+            "Social Media Posts - Wednesday"
+          ]
+        },
+        {
+          "id": "C178",
+          "tasks": [
+            "Social Media Posts - Tuesday"
+          ]
+        },
+        {
+          "id": "C186",
+          "tasks": [
+            "Social Media Posts - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Food Supply - Sunday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C100",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C14",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C20",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C26",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C34",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C40",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C46",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C54",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C6",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C60",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C66",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C74",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C80",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C86",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C94",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Installing the Venue - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C14",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C26",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C34",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C46",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C54",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C6",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C66",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C74",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        },
+        {
+          "id": "C86",
+          "tasks": [
+            "Food Supply - Tuesday",
+            "Installing the Venue - Tuesday"
+          ]
+        },
+        {
+          "id": "C94",
+          "tasks": [
+            "Food Supply - Wednesday",
+            "Installing the Venue - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Photographer / Videomaker - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C127",
+          "tasks": [
+            "Photographer / Videomaker - Tuesday"
+          ]
+        },
+        {
+          "id": "C135",
+          "tasks": [
+            "Photographer / Videomaker - Wednesday"
+          ]
+        },
+        {
+          "id": "C140",
+          "tasks": [
+            "Photographer / Videomaker - Tuesday"
+          ]
+        },
+        {
+          "id": "C148",
+          "tasks": [
+            "Photographer / Videomaker - Wednesday"
+          ]
+        },
+        {
+          "id": "C153",
+          "tasks": [
+            "Photographer / Videomaker - Tuesday"
+          ]
+        },
+        {
+          "id": "C161",
+          "tasks": [
+            "Photographer / Videomaker - Wednesday"
+          ]
+        },
+        {
+          "id": "C166",
+          "tasks": [
+            "Photographer / Videomaker - Tuesday"
+          ]
+        },
+        {
+          "id": "C174",
+          "tasks": [
+            "Photographer / Videomaker - Wednesday"
+          ]
+        },
+        {
+          "id": "C179",
+          "tasks": [
+            "Photographer / Videomaker - Tuesday"
+          ]
+        },
+        {
+          "id": "C187",
+          "tasks": [
+            "Photographer / Videomaker - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "DJ - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C125",
+          "tasks": [
+            "DJ - Tuesday"
+          ]
+        },
+        {
+          "id": "C133",
+          "tasks": [
+            "DJ - Wednesday"
+          ]
+        },
+        {
+          "id": "C138",
+          "tasks": [
+            "DJ - Tuesday"
+          ]
+        },
+        {
+          "id": "C146",
+          "tasks": [
+            "DJ - Wednesday"
+          ]
+        },
+        {
+          "id": "C151",
+          "tasks": [
+            "DJ - Tuesday"
+          ]
+        },
+        {
+          "id": "C159",
+          "tasks": [
+            "DJ - Wednesday"
+          ]
+        },
+        {
+          "id": "C164",
+          "tasks": [
+            "DJ - Tuesday"
+          ]
+        },
+        {
+          "id": "C172",
+          "tasks": [
+            "DJ - Wednesday"
+          ]
+        },
+        {
+          "id": "C177",
+          "tasks": [
+            "DJ - Tuesday"
+          ]
+        },
+        {
+          "id": "C185",
+          "tasks": [
+            "DJ - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Deinstalling the Venue + Cleaning - Sunday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C19",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C39",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C59",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C79",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C99",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Registrations / Sunday 23:00 - 00:30",
+      "alias": "",
+      "components": [
+        {
+          "id": "C19",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C39",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C59",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C79",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        },
+        {
+          "id": "C99",
+          "tasks": [
+            "Deinstalling the Venue + Cleaning - Sunday",
+            "Registrations / Sunday 23:00 - 00:30"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Master of Cerimony - Sunday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C100",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C20",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C40",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C60",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        },
+        {
+          "id": "C80",
+          "tasks": [
+            "Food Supply - Sunday",
+            "Master of Cerimony - Sunday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Registrations / Advanced - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C1",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C21",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C41",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C61",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        },
+        {
+          "id": "C81",
+          "tasks": [
+            "Registrations / Advanced - Tuesday",
+            "Registrations / Beginners - Tuesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Installing the Venue - Sunday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C18",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C38",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C58",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C78",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C98",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Registrations / Sunday 21:30 - 23:00",
+      "alias": "",
+      "components": [
+        {
+          "id": "C18",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C38",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C58",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C78",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        },
+        {
+          "id": "C98",
+          "tasks": [
+            "Installing the Venue - Sunday",
+            "Registrations / Sunday 21:30 - 23:00"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Take Care of Partyka Students - Tuesday",
+      "alias": "",
+      "components": [
+        {
+          "id": "C124",
+          "tasks": [
+            "Take Care of Partyka Students - Tuesday"
+          ]
+        },
+        {
+          "id": "C132",
+          "tasks": [
+            "Take Care of Partyka Students - Wednesday"
+          ]
+        },
+        {
+          "id": "C137",
+          "tasks": [
+            "Take Care of Partyka Students - Tuesday"
+          ]
+        },
+        {
+          "id": "C145",
+          "tasks": [
+            "Take Care of Partyka Students - Wednesday"
+          ]
+        },
+        {
+          "id": "C150",
+          "tasks": [
+            "Take Care of Partyka Students - Tuesday"
+          ]
+        },
+        {
+          "id": "C158",
+          "tasks": [
+            "Take Care of Partyka Students - Wednesday"
+          ]
+        },
+        {
+          "id": "C163",
+          "tasks": [
+            "Take Care of Partyka Students - Tuesday"
+          ]
+        },
+        {
+          "id": "C171",
+          "tasks": [
+            "Take Care of Partyka Students - Wednesday"
+          ]
+        },
+        {
+          "id": "C176",
+          "tasks": [
+            "Take Care of Partyka Students - Tuesday"
+          ]
+        },
+        {
+          "id": "C184",
+          "tasks": [
+            "Take Care of Partyka Students - Wednesday"
+          ]
+        }
+      ]
+    },
+    {
+      "canonical": "Take Care of Team Members",
+      "alias": "",
+      "components": [
+        {
+          "id": "C120",
+          "tasks": [
+            "Take Care of Team Members"
+          ]
+        }
+      ]
+    }
+  ]
+}

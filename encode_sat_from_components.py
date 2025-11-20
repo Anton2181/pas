@@ -31,14 +31,14 @@ for them so their scarcity does not dominate the solve.
 """
 
 from __future__ import annotations
-import argparse, csv, io, json
+import argparse, copy, csv, io, json, math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Iterable
 from collections import defaultdict, deque
 
 # =============== CONFIG (flags + weights together) ====================
-CONFIG = {
+DEFAULT_CONFIG = {
     # Debug / relax selectors
     "DEBUG_RELAX": False,
     "W_HARD": 1_000_000_000_000_000_000_000,  # ≥ W1
@@ -78,12 +78,16 @@ CONFIG = {
         "RELAX_REPEAT": True,
     },
 
+    "FAIR_MEAN_MULTIPLIER": 1.0,
+    "FAIR_OVER_START_DELTA": 0,
+
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- PRIORITY (Tier 1) ---
         "W1_COOLDOWN": 1_000_000_000_000_000,  # PRI cooldown ladder base (per counted violation step)
         "W1_REPEAT": 5 * 1_000_000_000_000_000,  # PRI repeat-over ladder base (above per-family limit)
         "W1_STREAK": 25 * 1_000_000_000_000_000,  # PRI cooldown streak (back-to-back weeks in same family)
+        "W_PRIORITY_MISS": 3_000_000_000,  # Heavy penalty when a TOP-eligible person receives zero priority tasks
 
         "W1_COOLDOWN_INTRA": 10_000_000_000_000_000_000,  # default = W1_COOLDOWN
         "W2_COOLDOWN_INTRA": 500_000_000_000_000,      # default = W2_COOLDOWN
@@ -108,17 +112,22 @@ CONFIG = {
         "W6_OVER": 2,  # Over-load ladder base multiplier
         "W6_UNDER": 5,  # Under-load ladder base multiplier
 
-        # Fairness (Tier-6) dials
-        "FAIR_MEAN_MULTIPLIER": 0.9,  # multiply the computed global mean before building fairness ladders
-        "FAIR_OVER_START_DELTA": 2,  # integer offset added to the (possibly scaled) mean for OVER thresholds
+        # Availability-aware fairness scaling (Tier-6 helper)
+        "FAIRNESS_AVAILABILITY": {
+            "ENABLED": True,
+            "REFERENCE": "auto",  # "auto" or "all"
+            "MIN_RATIO": 0.35,
+            "MAX_RATIO": 1.85,
+            "POWER": 0.75,
+        },
 
         # --- Priority coverage pressure ---
-        "T1C": 100_000_000,  # Encourage wide coverage of TOP-priority tasks
-        "T2C": 5_000_000,  # Encourage SECOND-priority, gated by not already TOP
+        "T1C": 1_000_000_000,  # Encourage wide coverage of TOP-priority tasks
+        "T2C": 500_000_000,  # Encourage SECOND-priority, gated by not already TOP
 
         # --- Two-day rule softening ---
-        "W_SUNDAY_TWO_DAY": 250_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
-        "W_TWO_DAY_SOFT": 1_000_000_000_000_000_000,
+        "W_SUNDAY_TWO_DAY": 1_500_000_000,  # Soft cost for Sunday-inclusive pairs when softened
+        "W_TWO_DAY_SOFT": 2_000_000_000,
         # Soft cost when two named days aren’t BOTH manual (soft modes)
     },
 
@@ -138,16 +147,39 @@ CONFIG = {
     ],
 }
 
+CONFIG = copy.deepcopy(DEFAULT_CONFIG)
+
+
+def deep_update(dst: dict, src: dict) -> dict:
+    """Recursively merge ``src`` into ``dst`` (in-place)."""
+
+    for key, value in (src or {}).items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            deep_update(dst[key], value)
+        else:
+            dst[key] = copy.deepcopy(value)
+    return dst
+
+
+def build_config(overrides: dict | None = None) -> dict:
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    if overrides:
+        deep_update(cfg, overrides)
+    return cfg
+
 # =====================================================================
 
 # -------------------- CLI (paths only) --------------------
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--components", default="components_all.csv", type=Path)
-    ap.add_argument("--backend",    default="backend.csv",       type=Path)
-    ap.add_argument("--out",        default="schedule.opb",      type=Path)
-    ap.add_argument("--map",        default="varmap.json",       type=Path)
-    ap.add_argument("--stats",      default="stats.txt",         type=Path)
+    ap.add_argument("--components",       default="components_all.csv", type=Path)
+    ap.add_argument("--backend",          default="backend.csv",       type=Path)
+    ap.add_argument("--out",              default="schedule.opb",      type=Path)
+    ap.add_argument("--map",              default="varmap.json",       type=Path)
+    ap.add_argument("--stats",            default="stats.txt",         type=Path)
+    ap.add_argument("--family-registry", default="family_registry.json", type=Path,
+                    help="JSON registry of canonical family tokens, aliases, and component membership")
+    ap.add_argument("--config", type=Path, help="Optional JSON file with CONFIG overrides")
     return ap.parse_args()
 
 # -------------------- Helpers --------------------
@@ -259,6 +291,95 @@ class AutoSoftener:
         if kind == "repeat":
             return self.relax_repeat
         return False
+
+
+@dataclass
+class FamilyRegistry:
+    """Loads/stores canonical family labels so humans can rename them."""
+
+    path: Path
+    mapping: Dict[str, str] = field(default_factory=dict)
+    components: Dict[str, Dict[str, Set[str]]] = field(default_factory=dict)
+    order: List[str] = field(default_factory=list)
+
+    def _write_json(self) -> None:
+        payload = {
+            "families": [
+                {
+                    "canonical": fam,
+                    "alias": trim(self.mapping.get(fam, "")),
+                    "components": [
+                        {
+                            "id": cid,
+                            "tasks": sorted(tasks),
+                        }
+                        for cid, tasks in sorted(self.components.get(fam, {}).items())
+                    ],
+                }
+                for fam in self.order
+            ]
+        }
+        with self.path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+
+    def load(self) -> None:
+        self.mapping = {}
+        self.components = {}
+        self.order = []
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            self._write_json()
+            return
+
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {"families": []}
+        for entry in data.get("families", []):
+            fam = trim(entry.get("canonical", ""))
+            alias = trim(entry.get("alias", ""))
+            comps: Dict[str, Set[str]] = {}
+            for comp in entry.get("components", []) or []:
+                cid = trim(comp.get("id", ""))
+                if not cid:
+                    continue
+                tasks = {trim(t) for t in (comp.get("tasks") or []) if trim(t)}
+                comps[cid] = tasks
+            if fam:
+                self.order.append(fam)
+                self.mapping[fam] = alias
+                self.components[fam] = comps
+
+    def sync(self, families_in_order: Iterable[str], fam_components: Dict[str, Dict[str, Set[str]]] | None = None) -> None:
+        fam_components = fam_components or {}
+        seen_new: Set[str] = set()
+        for fam in families_in_order:
+            fam_trim = trim(fam)
+            if not fam_trim:
+                continue
+            if fam_trim not in self.order:
+                self.order.append(fam_trim)
+            if fam_trim not in self.mapping:
+                self.mapping[fam_trim] = ""
+            if fam_trim in seen_new:
+                continue
+            seen_new.add(fam_trim)
+        for fam, comps in fam_components.items():
+            fam_trim = trim(fam)
+            if not fam_trim:
+                continue
+            merged = {k: set(v) for k, v in self.components.get(fam_trim, {}).items()}
+            for cid, tasks in comps.items():
+                if not cid:
+                    continue
+                merged.setdefault(cid, set()).update({t for t in tasks if t})
+            self.components[fam_trim] = merged
+
+        self._write_json()
+
+    def label(self, fam: str) -> str:
+        alias = trim(self.mapping.get(fam, ""))
+        return alias or fam
 
 def read_csv_matrix(path: Path) -> List[List[str]]:
     txt = path.read_text(encoding="utf-8-sig", errors="replace")
@@ -607,9 +728,19 @@ def make_and_not(pb: PBWriter, d: str, a: str | None) -> str:
     pb.add_le([(1, d), (-1, a), (-1, y)], 0)
     return y
 
+
+def _find_duplicates(weighted_vars: List[Tuple[int, str]]) -> Set[Tuple[int, str]]:
+    seen: Set[Tuple[int, str]] = set()
+    duplicates: Set[Tuple[int, str]] = set()
+    for pair in weighted_vars:
+        if pair in seen:
+            duplicates.add(pair)
+        else:
+            seen.add(pair)
+    return duplicates
+
 # -------------------- Encoder --------------------
-def main():
-    args = parse_args()
+def _encode(args):
     DEBUG_RELAX = bool(CONFIG["DEBUG_RELAX"])
     W_HARD = int(CONFIG["W_HARD"])
 
@@ -648,6 +779,7 @@ def main():
 
     W6_OVER, W6_UNDER, T1C = weight("W6_OVER"), weight("W6_UNDER"), weight("T1C")
     T2C = weight("T2C", default=max(1, T1C // 10))
+    W_PRIORITY_MISS = weight("W_PRIORITY_MISS", default=0)
     SUNDAY_TWO_DAY_SOFT = bool(CONFIG.get("SUNDAY_TWO_DAY_SOFT", False))
     TWO_DAY_SOFT_ALL = bool(CONFIG.get("TWO_DAY_SOFT_ALL", False))
     FAIR_MEAN_MULTIPLIER = float(CONFIG.get("FAIR_MEAN_MULTIPLIER", 1.0))
@@ -671,6 +803,34 @@ def main():
         r.is_second = any(n in second_priority_tasks for n in r.names)
         # Preserve prior logic that 'priority' drives cooldown/repeat as TOP-only:
         r.priority = bool(r.is_top)
+
+    family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.json"))))
+    family_registry.load()
+
+    family_components: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
+
+    def ordered_family_tokens() -> List[str]:
+        order: List[str] = []
+        seen: Set[str] = set()
+        for comp in comps:
+            fams = comp.sibling_key if comp.sibling_key else (comp.cid,)
+            for fam in fams:
+                fam_trim = trim(fam)
+                if not fam_trim:
+                    continue
+                family_components[fam_trim][comp.cid].update(comp.names)
+                if fam_trim in seen:
+                    continue
+                seen.add(fam_trim)
+                order.append(fam_trim)
+        return order
+
+    family_tokens = ordered_family_tokens()
+    family_registry.sync(family_tokens, family_components)
+    family_labels = {fam: family_registry.label(fam) for fam in family_tokens}
+
+    def fam_label(name: str) -> str:
+        return family_labels.get(name, family_registry.label(name))
 
     # Banned pairs config → frozensets
     BANNED_SIBLING_PAIRS: Set[frozenset] = {frozenset(p) for p in CONFIG["BANNED_SIBLING_PAIRS"]}
@@ -1073,7 +1233,13 @@ def main():
                                   info={"kind":"cooldown_prev_hard_PRI","week":str(w),"person":p,"family":fam_trim})
                     else:
                         cooldown_viols_pri[(p, fam_trim)].append(V_pri)
-                        cooldown_gate_info[V_pri] = {"person": p, "family": fam_trim, "week": w, "gate": "either"}
+                        cooldown_gate_info[V_pri] = {
+                            "person": p,
+                            "family": fam_trim,
+                            "family_label": fam_label(fam_trim),
+                            "week": w,
+                            "gate": "either",
+                        }
 
                     vprev_pri_by_pfam_week[(p, fam_trim, w)] = V_pri
 
@@ -1094,7 +1260,13 @@ def main():
                               info={"kind":"cooldown_prev_hard_NON","week":str(w),"person":p,"family":fam_trim})
                 else:
                     cooldown_viols_non[(p, fam_trim)].append(V_non)
-                    cooldown_gate_info[V_non] = {"person": p, "family": fam_trim, "week": w, "gate": "either"}
+                    cooldown_gate_info[V_non] = {
+                        "person": p,
+                        "family": fam_trim,
+                        "family_label": fam_label(fam_trim),
+                        "week": w,
+                        "gate": "either",
+                    }
 
                 vprev_non_by_pfam_week[(p, fam_trim, w)] = V_non
 
@@ -1218,14 +1390,26 @@ def main():
                         cooldown_pri_ladder_vars[z] = (
                             f"cooldown_geo::PRI::INTRA_WEEK::person={p}::family={fam_trim}::days_used={t}::W{w}"
                         )
-                        cooldown_gate_info[z] = {"person": p, "family": fam_trim, "week": w, "gate": "intra_week_auto"}
+                        cooldown_gate_info[z] = {
+                            "person": p,
+                            "family": fam_trim,
+                            "family_label": fam_label(fam_trim),
+                            "week": w,
+                            "gate": "intra_week_auto",
+                        }
                     else:
                         z = gated  # no need to AND with not-priority; PriAny is None already
                         penalties.append((W2_COOLDOWN_INTRA * (COOLDOWN_GEO ** step), z))
                         cooldown_non_ladder_vars[z] = (
                             f"cooldown_geo::NON::INTRA_WEEK::person={p}::family={fam_trim}::days_used={t}::W{w}"
                         )
-                        cooldown_gate_info[z] = {"person": p, "family": fam_trim, "week": w, "gate": "intra_week_auto"}
+                        cooldown_gate_info[z] = {
+                            "person": p,
+                            "family": fam_trim,
+                            "family_label": fam_label(fam_trim),
+                            "week": w,
+                            "gate": "intra_week_auto",
+                        }
 
     # ---------- Tier 3 ----------
     for key, X_all in person_day_X_all.items():
@@ -1307,6 +1491,34 @@ def main():
     mean_scaled = max(1, int((mean_base * FAIR_MEAN_MULTIPLIER + 0.9999999)))
     # final target for building ladders
     mean_target = max(1, mean_scaled + FAIR_OVER_START_DELTA)
+    fairness_avail_cfg = CONFIG["WEIGHTS"].get("FAIRNESS_AVAILABILITY", {})
+    fairness_avail_enabled = bool(fairness_avail_cfg.get("ENABLED"))
+    fairness_reference = fairness_avail_cfg.get("REFERENCE", "auto").lower()
+    fairness_min_ratio = float(fairness_avail_cfg.get("MIN_RATIO", 0.25))
+    fairness_max_ratio = float(fairness_avail_cfg.get("MAX_RATIO", 2.0))
+    fairness_power = float(fairness_avail_cfg.get("POWER", 1.0))
+
+    candidate_effort_total: Dict[str, int] = defaultdict(int)
+    candidate_effort_auto: Dict[str, int] = defaultdict(int)
+    for r in comps:
+        tc = max(1, int(r.task_count))
+        is_manual_flag = bool(original_manual.get(r.cid, False))
+        for p in cand.get(r.cid, []):
+            candidate_effort_total[p] += tc
+            if not is_manual_flag:
+                candidate_effort_auto[p] += tc
+
+    if fairness_reference not in {"auto", "all"}:
+        fairness_reference = "auto"
+    fairness_counts_map = candidate_effort_auto if fairness_reference == "auto" else candidate_effort_total
+    fairness_counts_mean = max(
+        1.0,
+        (sum(fairness_counts_map.get(p, 0) for p in people) / len(people)) if people else 1.0,
+    )
+
+    fairness_targets: Dict[str, int] = {}
+    fairness_target_notes: Dict[str, Dict[str, float | int]] = {}
+
     def log_thresholds_from(start: int, U: int, base: int) -> List[int]:
         """Monotone increasing thresholds starting from 'start', doubling by 'base' (>=2), capped at U."""
         if start > U:
@@ -1330,8 +1542,28 @@ def main():
         if not terms_p or U_p <= 0:
             continue
 
+        if fairness_avail_enabled:
+            raw_slots = fairness_counts_map.get(p, 0)
+            ratio = raw_slots / fairness_counts_mean if fairness_counts_mean > 0 else 1.0
+            ratio = max(fairness_min_ratio, min(fairness_max_ratio, ratio))
+            scale = ratio ** fairness_power
+            person_target = max(1, int(math.ceil(mean_target * scale - 1e-9)))
+        else:
+            raw_slots = fairness_counts_map.get(p, 0)
+            ratio = 1.0
+            scale = 1.0
+            person_target = mean_target
+
+        fairness_targets[p] = person_target
+        fairness_target_notes[p] = {
+            "raw_slots": raw_slots,
+            "ratio": ratio,
+            "scale": scale,
+            "target": person_target,
+        }
+
         # -------- OVER-load ladder
-        over_thresholds = log_thresholds_from(mean_target + 1, U_p, REPEAT_OVER_GEO)
+        over_thresholds = log_thresholds_from(person_target + 1, U_p, REPEAT_OVER_GEO)
         for idx, t in enumerate(over_thresholds, start=1):
             b_over = pb.new_var()
             pb.add_le(terms_p + [(-U_p, b_over)], t - 1)
@@ -1339,11 +1571,11 @@ def main():
 
         # -------- UNDER-load ladder
         under_candidates = sorted({
-            max(0, (mean_target * 1) // 2),
-            max(0, (mean_target * 3) // 4),
-            max(0, mean_target - 1),
+            max(0, (person_target * 1) // 2),
+            max(0, (person_target * 3) // 4),
+            max(0, person_target - 1),
         })
-        under_thresholds = [t for t in under_candidates if 0 < t <= mean_target - 1]
+        under_thresholds = [t for t in under_candidates if 0 < t <= person_target - 1]
         for idx, t in enumerate(under_thresholds, start=1):
             b_under = pb.new_var()
             # S_p + t * b_under >= t
@@ -1466,17 +1698,27 @@ def main():
     # ---------- Priority coverage (GLOBAL / FAMILY), two tiers ----------
     priority_coverage_vars_top: Dict[str, str] = {}
     priority_coverage_vars_second: Dict[str, str] = {}
+    priority_required_vars: Dict[str, str] = {}
+
+    top_any_by_person: Dict[str, str] = {}
+    top_miss_by_person: Dict[str, str] = {}
+    for p in people:
+        x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
+        if not x_top:
+            continue
+        TopAny = make_or(pb, x_top)
+        z_miss = pb.new_var()
+        pb.add_eq([(1, z_miss), (1, TopAny)], 1)
+        top_any_by_person[p] = TopAny
+        top_miss_by_person[p] = z_miss
+        priority_required_vars[z_miss] = f"priority_required::person={p}"
 
     if PRIORITY_COVERAGE_MODE == "global":
         # TOP (independent)
-        for p in people:
-            x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
-            if not x_top:
-                continue  # not eligible
-            TopAny = make_or(pb, x_top)
-            z = pb.new_var()  # 1 - TopAny
-            pb.add_eq([(1, z), (1, TopAny)], 1)
-            penalties.append((T1C, z))
+        top_weight = W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C
+        for p in sorted(top_miss_by_person):
+            z = top_miss_by_person[p]
+            penalties.append((top_weight, z))
             priority_coverage_vars_top[z] = f"priority_coverage_TOP::GLOBAL::person={p}"
 
         # SECOND (gated by NOT already TOP: penalty only if neither TOP nor SECOND)
@@ -1487,8 +1729,7 @@ def main():
             SecondAny = make_or(pb, x_second)
 
             # Build TopAny (if eligible for top); if no top-eligibility, TopAny is None
-            x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
-            TopAny = make_or(pb, x_top) if x_top else None
+            TopAny = top_any_by_person.get(p)
 
             CoveredEither = make_or(pb, [SecondAny, TopAny])  # treat TOP as satisfying SECOND coverage
             z2 = pb.new_var()  # 1 - (SecondAny OR TopAny)
@@ -1515,7 +1756,7 @@ def main():
                 TopAny_pf = make_or(pb, x_top_pf)
                 z = pb.new_var()
                 pb.add_eq([(1, z), (1, TopAny_pf)], 1)
-                penalties.append((T1C, z))
+                penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
                 priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
 
         # SECOND (gated by NOT already TOP in same family: penalty only if neither TOP nor SECOND in that family)
@@ -1540,6 +1781,11 @@ def main():
                 priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::FAMILY::person={p}::family={fam}"
 
     # Objective and dump
+    duplicate_penalties = _find_duplicates(penalties)
+    if duplicate_penalties:
+        dup_descriptions = ", ".join(sorted({f"{w}:{v}" for w, v in duplicate_penalties}))
+        raise ValueError(f"Duplicate penalties detected: {dup_descriptions}")
+
     pb.set_objective(penalties)
     pb.dump(args.out)
 
@@ -1547,6 +1793,11 @@ def main():
     selectors_by_var = {v: k for k, v in pb._selmap.items()}
     # Back-compat key "priority_coverage_vars" preserved to point to TOP
     priority_coverage_top_alias = dict(priority_coverage_vars_top)
+
+    auto_soften_notes = {
+        fam: {**meta, "family_label": fam_label(fam)}
+        for fam, meta in softener.notes.items()
+    }
 
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
@@ -1563,6 +1814,7 @@ def main():
         "priority_coverage_vars":           priority_coverage_top_alias,   # kept for older consumers
         "priority_coverage_vars_top":       priority_coverage_vars_top,
         "priority_coverage_vars_second":    priority_coverage_vars_second,
+        "priority_required_vars":           priority_required_vars,
         # NOTE: PRI repeat-over exports gated vars (only penalize when auto-PRI exists within family)
         "repeat_limit_pri_vars":     repeat_limit_pri_vars,
         "repeat_limit_non_vars":     repeat_limit_non_vars,
@@ -1573,8 +1825,12 @@ def main():
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
         "cooldown_gate_info": cooldown_gate_info,
+        "family_registry_path": str(getattr(args, "family_registry", "family_registry.json")),
+        "family_labels": family_labels,
         "deprioritized_pair_vars": deprioritized_pair_vars,
-        "auto_soften_families": softener.notes,
+        "auto_soften_families": auto_soften_notes,
+        "fairness_targets": fairness_targets,
+        "fairness_availability": fairness_target_notes,
         "config": CONFIG
 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1609,17 +1865,36 @@ def main():
         f"Tier-6 across-horizon total-effort fairness (log-ladder): W6_OVER={W6_OVER}, W6_UNDER={W6_UNDER}.",
         f"Tier-6 fairness mean: base={mean_base}, scaled={mean_scaled}, target(with delta)={mean_target} "
         f"(FAIR_MEAN_MULTIPLIER={FAIR_MEAN_MULTIPLIER}, FAIR_OVER_START_DELTA={FAIR_OVER_START_DELTA})",
-        f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): T1C={T1C} (TOP), T2C={T2C} (SECOND; ignored if TOP already).",
+        f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): TOP weight={W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C}, "
+        f"T2C={T2C} (SECOND; ignored if TOP already).",
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ]
+    stats.append(
+        f"Family registry: {getattr(args, 'family_registry', 'family_registry.json')} (tracked {len(family_labels)} families)"
+    )
+    if fairness_avail_enabled:
+        stats.append(
+            "Fairness availability scaling: "
+            f"ref={fairness_reference}, power={fairness_power}, ratio_floor={fairness_min_ratio}, cap={fairness_max_ratio}, "
+            f"mean_slots={fairness_counts_mean:.2f}"
+        )
+        if fairness_targets:
+            lowest = sorted(fairness_targets.items(), key=lambda kv: kv[1])[:3]
+            highest = sorted(fairness_targets.items(), key=lambda kv: kv[1])[-3:]
+            if lowest:
+                stats.append("  • Lowest targets: " + ", ".join(f"{name}:{target}" for name, target in lowest))
+            if highest:
+                stats.append("  • Highest targets: " + ", ".join(f"{name}:{target}" for name, target in highest))
     if softener.enabled:
         if softener.notes:
             stats.append("Auto-soften: skipped cooldown/repeat penalties for these scarce families:")
             for fam in sorted(softener.notes):
                 meta = softener.notes[fam]
+                label = fam_label(fam)
+                disp = label if label == fam else f"{label} ({fam})"
                 stats.append(
-                    f"  • {fam}: slots={meta['slots']}, unique_people={meta['unique_people']}, "
+                    f"  • {disp}: slots={meta['slots']}, unique_people={meta['unique_people']}, "
                     f"slots/person={meta['slots_per_person']}, reasons={meta['reasons']}"
                 )
         else:
@@ -1632,6 +1907,48 @@ def main():
     Path(args.stats).write_text("\n".join(stats) + "\n", encoding="utf-8")
     print(f"Wrote {args.out} | {args.map} | {args.stats}"
           f"{' | debug artifacts' if DEBUG_RELAX else ''}")
+
+
+def encode_with_args(args, overrides: dict | None = None) -> None:
+    config_data = build_config(overrides or {})
+    global CONFIG
+    prev_config = CONFIG
+    CONFIG = config_data
+    try:
+        _encode(args)
+    finally:
+        CONFIG = prev_config
+
+
+def run_encoder(
+    *,
+    components: Path,
+    backend: Path,
+    out: Path,
+    map_path: Path,
+    stats_path: Path,
+    family_registry: Path | None = None,
+    overrides: dict | None = None,
+) -> None:
+    args = argparse.Namespace(
+        components=components,
+        backend=backend,
+        out=out,
+        map=map_path,
+        stats=stats_path,
+        family_registry=family_registry or Path("family_registry.json"),
+        config=None,
+    )
+    encode_with_args(args, overrides=overrides)
+
+
+def main() -> None:
+    args = parse_args()
+    overrides: dict | None = None
+    if args.config:
+        overrides = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    encode_with_args(args, overrides=overrides)
+
 
 if __name__ == "__main__":
     main()

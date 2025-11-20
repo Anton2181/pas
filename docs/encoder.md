@@ -9,7 +9,22 @@ This document describes how the tango task distributor builds the pseudo-Boolean
    - `schedule.opb` – the SAT4J objective/constraint file.
    - `varmap.json` – human-readable names for every generated variable as well as metadata (weights, penalty tiers, scarcity notes, etc.).
    - `stats.txt` – a prose summary of the important knobs, automatically including which families are auto-softened.
-3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. When that limit fires, the wrapper now sends `SIGINT` (same as pressing <kbd>Ctrl+C</kbd>) so SAT4J can flush the best-so-far model before being force-killed. Every `v ...` model is written to `models.txt`, and the wrapper immediately calls `consume_saved_models.py` so the fairness plots and CSV summaries are regenerated without manual intervention.
+- `family_registry.json` – a persistent registry of every canonical family token encountered in this run. The encoder rewrites the file with any new tokens, tracks which component IDs and task names map to each family so you can disambiguate similarly named families, and leaves the alias field blank so you can fill in human-readable names that will be reused in subsequent stats/diagnostics.
+ 3. `run_solver.py` executes SAT4J with a 120 second timeout so long solver runs do not hang the workflow. When that limit fires, the wrapper now sends `SIGINT` (same as pressing <kbd>Ctrl+C</kbd>) so SAT4J can flush the best-so-far model before being force-killed. Every `v ...` model is written to `models.txt`, and the wrapper immediately calls `consume_saved_models.py` so the fairness plots and CSV summaries are regenerated without manual intervention.
+
+4. `visualize_components.py` is optional but handy when you want to inspect the exclusivity graph. It now renders multiple views by default—`*_grid.png` aligns nodes by (week, day), `*_spring.png` is force-directed, `*_component.png` groups connected components, and `*_calendar.png` dedicates a subplot to each day so labels stop colliding. Nodes are heat-mapped by eligible-candidate count with day-colored borders, `--label-mode` lets you switch between full/short/no labels, and each run also emits candidate-distribution charts. Graphs now land inside `components_graphs/` (override with `--out-dir`) so they stay bundled, while the histogram/heatmap/scatter charts live under `components_analysis/` unless you pass `--analysis-dir`. Use `--skip-analysis` if you only want the graphs.
+
+All of the generated artifacts listed above (`schedule.opb`, `varmap.json`, `stats.txt`, solver summaries, fairness plots, `components_graphs/*.png`, etc.) are now ignored by Git so they do not block PR creation. Re-run the relevant script whenever you need fresh copies—they will show up as untracked files locally.
+
+All of these scripts accept `--components`/`--backend` overrides so you can point to the synthetic fixtures that power the automated tests.
+
+## Family registry aliases
+
+Every sibling/family token is tracked in `family_registry.json`. The encoder rewrites the registry each run, adding any new canonical tokens, merging their component IDs and the task names attached to those components, and then looking up the `alias` field whenever it writes `stats.txt`, `varmap.json`, or other diagnostics. Leave the alias blank to keep using the canonical name or edit it once to give that family a friendly label—the next encoder run will automatically pick it up. Because the registry is an input to future runs it lives under version control, unlike the other gitignored artifacts.
+
+## Configuration overrides
+
+`encode_sat_from_components.py` now accepts an optional `--config` argument pointing to a JSON file. The file is merged into the default `CONFIG` tree (deep merge), so you can flip flags such as `TWO_DAY_SOFT_ALL` or adjust weights without editing the script. The test suite uses the same hook via `encoder.run_encoder(..., overrides=...)`, so any combination you encode here can also be verified automatically.
 
 ## Auto-softening for scarce families
 
@@ -19,6 +34,10 @@ The encoder now inspects each sibling family and counts:
 - how many component slots (across all weeks) belong to that family.
 
 If a family has `<=3` unique eligible people *or* needs more than `1.5` slots per candidate, it is marked as "scarce". Scarce families skip the heaviest repeat-limit and cooldown penalties (still respecting exact-one, day rules, etc.) so the solver is not punished for unavoidable repeats. Details for every skipped family live in both `varmap.json.auto_soften_families` and `stats.txt`.
+
+## Availability-aware fairness
+
+Tier-6 fairness ladders now scale their targets by candidate availability. The encoder counts how many AUTO components each person could legally cover, computes a ratio relative to the group mean, and multiplies the baseline fairness target accordingly. People with few eligible slots receive tiny targets so they are never punished for under-load, while high-availability dancers inherit larger targets that push the solver toward balanced results. Inspect `varmap.json.fairness_targets` (and the matching block inside `stats.txt`) to see the per-person targets, and adjust the `FAIRNESS_AVAILABILITY` ratios/caps/exponent in `CONFIG` whenever you need to tighten or loosen the balance pressure.
 
 ## Adding candidates automatically
 
@@ -31,6 +50,8 @@ The encoder already merges "Both"-role expansions, manual overrides, and sibling
 | `stats.txt` | Narrative summary including repeat/cooldown ladders, fairness mean, and now the auto-soften report. |
 | `varmap.json` | Contains every objective selector name and the config snapshot. Search for `auto_soften_families` to see which families were relieved. |
 | `penalties_activated.csv` | Generated after solving; lists which ladder variables fired and how often. Combine with the scarcity report to see if the solver is still bottlenecked elsewhere. |
+| `components_graphs/components_graph_<layout>.png` | Optional visualizations generated by `visualize_components.py` showing conflict edges across multiple layouts. |
+| `reports/assignment_report*.{csv,txt}` | Post-solve summary generated by `report_assignments.py`, highlighting total tasks, repeats, and priority eligibility per person. |
 
 ## Automatic evaluation after solving
 
@@ -44,6 +65,33 @@ python3 run_solver.py --opb schedule.opb --metric effort --log logs/solver.log
 - `assigned_optimal.csv`, `models_summary.csv`, `loads_by_person.csv`, `penalties_activated.csv`, and the fairness plots are refreshed immediately via `consume_saved_models.py`.
 - Use `--skip-consume` if you only want the solver output, or change `--metric` when you want the fairness charts to be based on task count vs. effort.
 - When the timeout fires before SAT4J emits a `v ...` assignment, the wrapper first issues `SIGINT` to request the best-so-far model, waits `--interrupt-grace` seconds (10s default), and only then force-kills the solver. Regardless of whether a model arrives, the log is preserved and the previous CSVs stay untouched so you can rerun with a longer limit.
+- Follow up with `python3 summarize_results.py` to print the headline objective, penalty counts, and load extremes pulled from the refreshed CSVs. This keeps "what's our current best?" checks to a single command.
+- Use `python3 run_weight_experiments.py --plans plans.json` when you want to try multiple weight tweaks in parallel. Each plan writes artifacts under `experiments/<plan>/` (including per-plan bar/Lorenz charts), and the harness now emits cross-plan penalty/load bar charts plus a best-of summary (fewest penalties and most even load). The summary charts are written even when a plan times out with no model so you always have a visual record of what ran. The repository ships with a starter `plans.json` that keeps every weight type present while pushing on different axes:
+  - `baseline_full`: control run with the checked-in weights spelled out explicitly.
+  - `priority_heavy` / `priority_light`: scale `T1C`/`T2C` and `W_PRIORITY_MISS` up or down while keeping other tiers intact.
+  - `cooldown_soft` / `cooldown_strict`: relax or harden both inter- and intra-week cooldown ladders without dropping any penalties.
+  - `fairness_push`: bump Tier-6 to spread work more aggressively.
+  - `two_day_hard`: disable the soft two-day modes entirely (hard requirement) while keeping weights defined.
+  - `both_cost_sensitive`: make “Both” fallbacks rarer without affecting the other tiers.
+
+## Verifying rule combinations
+
+Unit tests under `tests/` now cover the most failure-prone rule combinations:
+
+- Two-day restrictions (Sunday-only softening vs. hard bans).
+- Auto-softening detection for scarce families.
+- Repeat penalties gating manual-only assignments.
+- Priority coverage selectors in both `GLOBAL` and `FAMILY` modes.
+- A miniature end-to-end solve + consume cycle that regenerates the CSVs.
+
+Run all of them via:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+pytest
+```
+
+The fixtures in `tests/utils.py` build throwaway component/backend CSVs so the tests stay hermetic and do not mutate the real dataset.
 
 ## Running the solver safely
 
