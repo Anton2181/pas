@@ -86,6 +86,13 @@ DEFAULT_CONFIG = {
     "FAIR_MEAN_MULTIPLIER": 1.0,
     "FAIR_OVER_START_DELTA": 0,
 
+    # Optional weight ladder (ordered list where each entry is RATIO× the next)
+    "WEIGHT_LADDER": {
+        "ORDER": [],  # strongest → weakest
+        "RATIO": 100,
+        "TOP": None,  # if omitted, anchor to ORDER[0] value from WEIGHTS
+    },
+
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- PRIORITY (Tier 1) ---
@@ -173,10 +180,39 @@ def deep_update(dst: dict, src: dict) -> dict:
     return dst
 
 
+def _apply_weight_ladder(cfg: dict) -> None:
+    ladder_cfg = cfg.get("WEIGHT_LADDER") or {}
+    order: List[str] = ladder_cfg.get("ORDER") or []
+    if not order:
+        return
+
+    ratio = int(ladder_cfg.get("RATIO", 100))
+    if ratio <= 1:
+        raise ValueError("WEIGHT_LADDER.RATIO must be >1")
+
+    weights = copy.deepcopy(cfg.get("WEIGHTS", {}))
+    top = ladder_cfg.get("TOP")
+    anchor = int(top) if top is not None else None
+    if anchor is None:
+        first = order[0]
+        if first in weights:
+            anchor = int(weights[first])
+    if anchor is None:
+        anchor = max(1, int(cfg.get("W_HARD", 1_000_000)) // ratio)
+
+    current = anchor
+    for name in order:
+        weights[name] = current
+        current = max(1, current // ratio)
+
+    cfg["WEIGHTS"] = weights
+
+
 def build_config(overrides: dict | None = None) -> dict:
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     if overrides:
         deep_update(cfg, overrides)
+    _apply_weight_ladder(cfg)
     return cfg
 
 # =====================================================================
@@ -1935,6 +1971,21 @@ def _encode(args):
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
         f"Allow unassigned components: {'ON' if DEBUG_ALLOW_UNASSIGNED else 'OFF'} "
         f"(W_DEBUG_UNASSIGNED={W_DEBUG_UNASSIGNED}, drop_vars={len(component_drop_vars)})",
+    ]
+    ladder_cfg = CONFIG.get("WEIGHT_LADDER", {})
+    ladder_order = ladder_cfg.get("ORDER") or []
+    if ladder_order:
+        anchor_desc = ladder_cfg.get("TOP")
+        if anchor_desc is None:
+            anchor_desc = f"WEIGHTS[{ladder_order[0]}]"
+        stats.append(
+            "Weight ladder: "
+            f"ratio={ladder_cfg.get('RATIO', 100)}, anchor={anchor_desc}, "
+            f"order={', '.join(ladder_order)}"
+        )
+    else:
+        stats.append("Weight ladder: disabled (explicit WEIGHTS in use).")
+    stats.extend([
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
@@ -1961,7 +2012,7 @@ def _encode(args):
         f"T2C={T2C} (SECOND; ignored if TOP already).",
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
-    ]
+    ])
     stats.append(
         f"Family registry: {getattr(args, 'family_registry', 'family_registry.json')} (tracked {len(family_labels)} families)"
     )
