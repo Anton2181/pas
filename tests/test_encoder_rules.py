@@ -199,6 +199,31 @@ def test_priority_miss_guard_records_people(tmp_path: Path) -> None:
     assert any("person=Alex" in label for label in required.values())
 
 
+def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex", "Blair"], sibling_key="Fam"),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 999},
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="debug_drop")
+    varmap = _load_varmap(paths["map"])
+
+    drop_vars = varmap.get("component_drop_vars")
+    assert drop_vars and set(drop_vars.keys()) == {"C1"}
+    drop_var = drop_vars["C1"]
+    assert varmap["x_to_label"][drop_var] == "drop::C1"
+
+    stats_text = paths["stats"].read_text(encoding="utf-8")
+    assert "Allow unassigned components: ON" in stats_text
+
+
 def test_fairness_availability_scaling(tmp_path: Path) -> None:
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task 1", candidates=["Alex", "Blair"]),
