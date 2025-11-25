@@ -138,6 +138,7 @@ def read_varmap(path: Path):
     vprev_nonconsec    = vm.get('vprev_nonconsec_vars', {})  # encoder now leaves this empty
     preferred_miss     = vm.get('preferred_miss_vars', {})
     priority_coverage  = vm.get('priority_coverage_vars', {})
+    effort_floor_vars  = vm.get('effort_floor_vars', {}) or {}
 
     # Geometric ladders + over-limit maps (present in the optimized encoder)
     cooldown_pri_ladder = vm.get('cooldown_pri_ladder_vars', {})
@@ -148,6 +149,14 @@ def read_varmap(path: Path):
     two_day_soft = vm.get('two_day_soft_vars') or vm.get('sunday_two_day_vars') or {}
 
     debug_relax_by_var = vm.get('selectors_by_var', {}) or {}
+
+    component_drop_by_cid = vm.get('component_drop_vars', {}) or {}
+    component_drop_by_var = {}
+    for cid, var in component_drop_by_cid.items():
+        if not var:
+            continue
+        label = x_to_label.get(var) or f"drop::{cid}"
+        component_drop_by_var[var] = label
 
     penalty_maps = {
         'CooldownPRI': vm.get('vprev_pri_vars', {}),
@@ -164,7 +173,9 @@ def read_varmap(path: Path):
         'OneTaskDay': vm.get('q_vars', {}),
         'TwoDaySoft': two_day_soft,
         'DeprioritizedPair': vm.get('deprioritized_pair_vars', {}),  # <-- NEW
+        'EffortFloor': effort_floor_vars,
         'DebugRelax': debug_relax_by_var,
+        'DebugUnassigned': component_drop_by_var,
     }
     config = vm.get('config', {})
     return x_to_label, penalty_maps, config
@@ -333,7 +344,9 @@ def main():
             "n_OneTaskDay": str(counts.get("OneTaskDay", 0)),
             "n_TwoDaySoft": str(counts.get("TwoDaySoft", 0)),  # <-- NEW
             "n_DeprioritizedPair": str(counts.get("DeprioritizedPair", 0)),  # <-- NEW
+            "n_EffortFloor": str(counts.get("EffortFloor", 0)),
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
+            "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
         })
 
         if best_score is None or score < best_score:
@@ -348,8 +361,8 @@ def main():
             "n_CooldownPRI","n_CooldownNON","n_CooldownStreak","n_CooldownNonConsec",
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
             "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
-            "n_TwoDaySoft","n_DeprioritizedPair",
-            "n_DebugRelax"  # <-- NEW column
+            "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor",
+            "n_DebugRelax","n_DebugUnassigned"  # <-- NEW columns
         ])
         w.writeheader()
         w.writerows(models_summary)

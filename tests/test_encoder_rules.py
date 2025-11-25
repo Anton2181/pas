@@ -199,6 +199,31 @@ def test_priority_miss_guard_records_people(tmp_path: Path) -> None:
     assert any("person=Alex" in label for label in required.values())
 
 
+def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex", "Blair"], sibling_key="Fam"),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 999},
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="debug_drop")
+    varmap = _load_varmap(paths["map"])
+
+    drop_vars = varmap.get("component_drop_vars")
+    assert drop_vars and set(drop_vars.keys()) == {"C1"}
+    drop_var = drop_vars["C1"]
+    assert varmap["x_to_label"][drop_var] == "drop::C1"
+
+    stats_text = paths["stats"].read_text(encoding="utf-8")
+    assert "Allow unassigned components: ON" in stats_text
+
+
 def test_fairness_availability_scaling(tmp_path: Path) -> None:
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task 1", candidates=["Alex", "Blair"]),
@@ -225,6 +250,55 @@ def test_fairness_availability_scaling(tmp_path: Path) -> None:
     assert targets["Alex"] > targets["Blair"]
     fairness_info = varmap["fairness_availability"]
     assert fairness_info["Alex"]["raw_slots"] > fairness_info["Blair"]["raw_slots"]
+
+
+def test_effort_floor_targets_only_eligible(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
+        for i in range(1, 5)
+    ] + [
+        component_row(cid=f"CY{i}", week="Week 2", day="Wednesday", task_name=f"Casey Task {i}", candidates=["Casey"], effort=2.0)
+        for i in range(1, 4)
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair"), backend_row("Casey")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "EFFORT_FLOOR_TARGET": 8,
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor")
+    varmap = _load_varmap(paths["map"])
+
+    eligible = varmap.get("effort_floor_eligible", [])
+    assert set(eligible) == {"Alex", "Blair"}
+
+    labels = list(varmap.get("effort_floor_vars", {}).values())
+    assert any("person=Alex" in lbl for lbl in labels)
+    assert any("person=Blair" in lbl for lbl in labels)
+    assert not any("Casey" in lbl for lbl in labels)
+
+
+def test_effort_floor_hard_relax_label(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
+        for i in range(1, 5)
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_RELAX": True,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_hard")
+    varmap = _load_varmap(paths["map"])
+
+    selectors = varmap.get("selectors", {})
+    assert any("effort_floor_hard::Alex" in label for label in selectors)
 
 
 def test_pipeline_produces_assignments(tmp_path: Path) -> None:

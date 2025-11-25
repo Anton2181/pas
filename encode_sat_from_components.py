@@ -41,7 +41,12 @@ from collections import defaultdict, deque
 DEFAULT_CONFIG = {
     # Debug / relax selectors
     "DEBUG_RELAX": False,
+    "DEBUG_ALLOW_UNASSIGNED": False,
     "W_HARD": 1_000_000_000_000_000_000_000,  # ≥ W1
+
+    # Minimum-effort encouragement
+    "EFFORT_FLOOR_TARGET": 8,
+    "EFFORT_FLOOR_HARD": False,
 
     # Cooldown options (prev-week; separate from repeat limits below)
     "PRIORITY_COOLDOWN_HARD": False,
@@ -111,6 +116,12 @@ DEFAULT_CONFIG = {
         # --- Tier 6: across-horizon fairness (convex ladders) ---
         "W6_OVER": 2,  # Over-load ladder base multiplier
         "W6_UNDER": 5,  # Under-load ladder base multiplier
+
+        # --- Effort floor nudger ---
+        "W_EFFORT_FLOOR": 1_000_000_000_000_000_000,
+
+        # --- Debug helpers ---
+        "W_DEBUG_UNASSIGNED": 1_000_000_000_000_000_000,
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
@@ -193,6 +204,13 @@ def to_int(s: str, default: int) -> int:
     except Exception:
         return default
 
+
+def to_float(s: str, default: float) -> float:
+    try:
+        return float((trim(s) or str(default)).replace(",", "."))
+    except Exception:
+        return default
+
 def parse_week_num(week_label: str) -> int:
     digits = "".join(ch for ch in week_label if ch.isdigit())
     return int(digits) if digits else 0
@@ -220,6 +238,7 @@ class CompRow:
     repeat: int
     repeat_max: int
     task_count: int
+    total_effort: float
     names: List[str]
     priority: bool
     assigned_flag: bool
@@ -412,6 +431,7 @@ def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
             cand_role     = split_csv_people(rr.get("Role-Filtered Candidates",""))
             cand_all      = split_csv_people(rr.get("Candidates",""))
             candidates_role = cand_role if cand_role else cand_all
+            total_effort  = max(0.0, to_float(rr.get("Total Effort", ""), task_count))
 
             people.update(assigned_to)
             people.update(candidates_role)
@@ -421,7 +441,7 @@ def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
 
             rows.append(CompRow(
                 cid=cid, week_label=week_label, week_num=week_num, day=day,
-                repeat=repeat, repeat_max=repeat_max, task_count=task_count,
+                repeat=repeat, repeat_max=repeat_max, task_count=task_count, total_effort=total_effort,
                 names=names, priority=prio, assigned_flag=assigned_flag,
                 assigned_to=assigned_to, candidates_all=cand_all, candidates_role=candidates_role,
                 sibling_key=sib
@@ -743,6 +763,7 @@ def _find_duplicates(weighted_vars: List[Tuple[int, str]]) -> Set[Tuple[int, str
 # -------------------- Encoder --------------------
 def _encode(args):
     DEBUG_RELAX = bool(CONFIG["DEBUG_RELAX"])
+    DEBUG_ALLOW_UNASSIGNED = bool(CONFIG["DEBUG_ALLOW_UNASSIGNED"])
     W_HARD = int(CONFIG["W_HARD"])
 
     PRIORITY_COOLDOWN_HARD = bool(CONFIG["PRIORITY_COOLDOWN_HARD"])
@@ -758,6 +779,7 @@ def _encode(args):
 
     PRIORITY_COVERAGE_MODE = str(CONFIG["PRIORITY_COVERAGE_MODE"]).lower()
     W = CONFIG["WEIGHTS"]
+    W_DEBUG_UNASSIGNED = int(W.get("W_DEBUG_UNASSIGNED", 0))
 
     def weight(name: str, *, default: int | None = None) -> int:
         if name in W:
@@ -1014,16 +1036,27 @@ def _encode(args):
 
 
     # -------------------- Exactly-one per component (hard) --------------------
+    component_drop_vars: Dict[str, str] = {}
     for r in comps:
         X = [xv(r.cid, p) for p in cand[r.cid]]
-        if not X:
-            label = f"exactly_one_empty::{r.cid}"
-            pb.add_eq([], 1, relax_label=label, info={"kind":"exactly_one_empty","cid":r.cid})
-        else:
-            label = f"exactly_one::{r.cid}"
-            pb.add_eq([(1, v) for v in X], 1,
+        if DEBUG_ALLOW_UNASSIGNED:
+            drop_var = pb.new_var()
+            component_drop_vars[r.cid] = drop_var
+            x_to_label[drop_var] = f"drop::{r.cid}"
+            label = f"exactly_one_or_drop::{r.cid}"
+            terms = [(1, v) for v in X] + [(1, drop_var)]
+            pb.add_eq(terms, 1,
                       relax_label=(label if DEBUG_RELAX else None),
-                      info={"kind":"exactly_one","cid":r.cid})
+                      info={"kind":"exactly_one_or_drop","cid":r.cid,"drop":drop_var})
+        else:
+            if not X:
+                label = f"exactly_one_empty::{r.cid}"
+                pb.add_eq([], 1, relax_label=label, info={"kind":"exactly_one_empty","cid":r.cid})
+            else:
+                label = f"exactly_one::{r.cid}"
+                pb.add_eq([(1, v) for v in X], 1,
+                          relax_label=(label if DEBUG_RELAX else None),
+                          info={"kind":"exactly_one","cid":r.cid})
 
     # -------------------- Sibling move links (manual-Both unfreeze) --------------------
     for (A, B, P) in sibling_move_links:
@@ -1032,6 +1065,9 @@ def _encode(args):
                   info={"kind":"both_move_link","A":A,"B":B,"person":P})
 
     penalties: List[Tuple[int, str]] = []
+    if DEBUG_ALLOW_UNASSIGNED and W_DEBUG_UNASSIGNED > 0:
+        for cid, drop_var in component_drop_vars.items():
+            penalties.append((W_DEBUG_UNASSIGNED, drop_var))
     two_day_soft_vars: Dict[str, str] = {}
 
     # -------------------- Sibling anti-dup (names-based exact match) --------------------
@@ -1509,6 +1545,31 @@ def _encode(args):
             if not is_manual_flag:
                 candidate_effort_auto[p] += tc
 
+    person_effort_terms: Dict[str, List[Tuple[int, str]]] = {}
+    person_effort_caps: Dict[str, int] = {}
+    person_effort_terms_effort: Dict[str, List[Tuple[int, str]]] = {}
+    person_effort_caps_effort: Dict[str, int] = {}
+    for p in people:
+        terms_p: List[Tuple[int, str]] = []
+        terms_effort: List[Tuple[int, str]] = []
+        U_p = 0
+        U_effort = 0
+        for r in comps:
+            if p in cand.get(r.cid, []):
+                tc = max(1, int(r.task_count))
+                terms_p.append((tc, xv(r.cid, p)))
+                U_p += tc
+
+                effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
+                terms_effort.append((effort_units, xv(r.cid, p)))
+                U_effort += effort_units
+        if terms_p and U_p > 0:
+            person_effort_terms[p] = terms_p
+            person_effort_caps[p] = U_p
+        if terms_effort and U_effort > 0:
+            person_effort_terms_effort[p] = terms_effort
+            person_effort_caps_effort[p] = U_effort
+
     if fairness_reference not in {"auto", "all"}:
         fairness_reference = "auto"
     fairness_counts_map = candidate_effort_auto if fairness_reference == "auto" else candidate_effort_total
@@ -1531,18 +1592,8 @@ def _encode(args):
             t = max(t + 1, t * base)
         return ts
 
-    for p in people:
-        # Build across-horizon effort terms for person p
-        terms_p: List[Tuple[int, str]] = []
-        U_p = 0
-        for r in comps:
-            if p in cand.get(r.cid, []):
-                tc = max(1, int(r.task_count))
-                terms_p.append((tc, xv(r.cid, p)))
-                U_p += tc
-        if not terms_p or U_p <= 0:
-            continue
-
+    for p, terms_p in person_effort_terms.items():
+        U_p = person_effort_caps.get(p, 0)
         if fairness_avail_enabled:
             raw_slots = fairness_counts_map.get(p, 0)
             ratio = raw_slots / fairness_counts_mean if fairness_counts_mean > 0 else 1.0
@@ -1582,6 +1633,39 @@ def _encode(args):
             # S_p + t * b_under >= t
             pb.add_ge(terms_p + [(t, b_under)], t)
             penalties.append((W6_UNDER * (REPEAT_OVER_GEO ** (idx - 1)), b_under))
+
+    # ---------- Effort floor (eligible people only) ----------
+    effort_floor_vars: Dict[str, str] = {}
+    EFFORT_FLOOR_TARGET = int(CONFIG.get("EFFORT_FLOOR_TARGET", 0) or 0)
+    EFFORT_FLOOR_HARD = bool(CONFIG.get("EFFORT_FLOOR_HARD", False))
+    W_EFFORT_FLOOR = int(CONFIG.get("WEIGHTS", {}).get("W_EFFORT_FLOOR", 0))
+    effort_floor_eligible: List[str] = []
+    if EFFORT_FLOOR_TARGET > 0:
+        for p, terms_p in person_effort_terms_effort.items():
+            U_p = person_effort_caps_effort.get(p, 0)
+            if U_p < EFFORT_FLOOR_TARGET:
+                continue
+            effort_floor_eligible.append(p)
+
+            under_floor = pb.new_var()
+            pb.add_ge(
+                terms_p + [(EFFORT_FLOOR_TARGET, under_floor)],
+                EFFORT_FLOOR_TARGET,
+                info={"kind": "effort_floor_soft", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
+            )
+            if W_EFFORT_FLOOR != 0:
+                penalties.append((W_EFFORT_FLOOR, under_floor))
+                effort_floor_vars[under_floor] = (
+                    f"effort_floor_under::person={p}::target={EFFORT_FLOOR_TARGET}::capacity={U_p}"
+                )
+
+            if EFFORT_FLOOR_HARD:
+                pb.add_ge(
+                    terms_p,
+                    EFFORT_FLOOR_TARGET,
+                    relax_label=f"effort_floor_hard::{p}" if DEBUG_RELAX else None,
+                    info={"kind": "effort_floor_hard", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
+                )
 
     # ---------- Per-person × family repeat limits (geometric overage) ----------
     repeat_limit_pri_vars: Dict[str, str] = {}
@@ -1822,6 +1906,7 @@ def _encode(args):
         "cooldown_pri_ladder_vars":  cooldown_pri_ladder_vars,
         "cooldown_non_ladder_vars":  cooldown_non_ladder_vars,
         # Gate visibility for cooldowns (lets you confirm AUTO was required)
+        "component_drop_vars":       component_drop_vars,
         "two_day_soft_vars": two_day_soft_vars,
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
@@ -1829,6 +1914,10 @@ def _encode(args):
         "family_registry_path": str(getattr(args, "family_registry", "family_registry.json")),
         "family_labels": family_labels,
         "deprioritized_pair_vars": deprioritized_pair_vars,
+        "effort_floor_vars": effort_floor_vars,
+        "effort_floor_target": EFFORT_FLOOR_TARGET,
+        "effort_floor_hard": EFFORT_FLOOR_HARD,
+        "effort_floor_eligible": sorted(effort_floor_eligible),
         "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
         "fairness_availability": fairness_target_notes,
@@ -1844,6 +1933,8 @@ def _encode(args):
         f"People: {len(people)}",
         f"Components: {len(comps)}",
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
+        f"Allow unassigned components: {'ON' if DEBUG_ALLOW_UNASSIGNED else 'OFF'} "
+        f"(W_DEBUG_UNASSIGNED={W_DEBUG_UNASSIGNED}, drop_vars={len(component_drop_vars)})",
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
@@ -1902,6 +1993,14 @@ def _encode(args):
             stats.append("Auto-soften: enabled but no families crossed the scarcity thresholds.")
     else:
         stats.append("Auto-soften: disabled via CONFIG.")
+
+    if EFFORT_FLOOR_TARGET > 0:
+        stats.append(
+            f"Effort floor: target={EFFORT_FLOOR_TARGET}, weight={W_EFFORT_FLOOR}, "
+            f"hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, eligible_people={len(effort_floor_eligible)}"
+        )
+        if effort_floor_eligible:
+            stats.append("  • Eligible for effort floor: " + ", ".join(sorted(effort_floor_eligible)))
     dprio_count = len(deprioritized_pair_vars)
     stats.append(f"Deprioritized pair soft hits (potential vars): {dprio_count}")
 
