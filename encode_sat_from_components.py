@@ -41,6 +41,7 @@ from collections import defaultdict, deque
 DEFAULT_CONFIG = {
     # Debug / relax selectors
     "DEBUG_RELAX": False,
+    "DEBUG_ALLOW_UNASSIGNED": False,
     "W_HARD": 1_000_000_000_000_000_000_000,  # ≥ W1
 
     # Cooldown options (prev-week; separate from repeat limits below)
@@ -111,6 +112,9 @@ DEFAULT_CONFIG = {
         # --- Tier 6: across-horizon fairness (convex ladders) ---
         "W6_OVER": 2,  # Over-load ladder base multiplier
         "W6_UNDER": 5,  # Under-load ladder base multiplier
+
+        # --- Debug helpers ---
+        "W_DEBUG_UNASSIGNED": 1_000_000_000_000_000_000,
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
@@ -743,6 +747,7 @@ def _find_duplicates(weighted_vars: List[Tuple[int, str]]) -> Set[Tuple[int, str
 # -------------------- Encoder --------------------
 def _encode(args):
     DEBUG_RELAX = bool(CONFIG["DEBUG_RELAX"])
+    DEBUG_ALLOW_UNASSIGNED = bool(CONFIG["DEBUG_ALLOW_UNASSIGNED"])
     W_HARD = int(CONFIG["W_HARD"])
 
     PRIORITY_COOLDOWN_HARD = bool(CONFIG["PRIORITY_COOLDOWN_HARD"])
@@ -758,6 +763,7 @@ def _encode(args):
 
     PRIORITY_COVERAGE_MODE = str(CONFIG["PRIORITY_COVERAGE_MODE"]).lower()
     W = CONFIG["WEIGHTS"]
+    W_DEBUG_UNASSIGNED = int(W.get("W_DEBUG_UNASSIGNED", 0))
 
     def weight(name: str, *, default: int | None = None) -> int:
         if name in W:
@@ -1014,16 +1020,27 @@ def _encode(args):
 
 
     # -------------------- Exactly-one per component (hard) --------------------
+    component_drop_vars: Dict[str, str] = {}
     for r in comps:
         X = [xv(r.cid, p) for p in cand[r.cid]]
-        if not X:
-            label = f"exactly_one_empty::{r.cid}"
-            pb.add_eq([], 1, relax_label=label, info={"kind":"exactly_one_empty","cid":r.cid})
-        else:
-            label = f"exactly_one::{r.cid}"
-            pb.add_eq([(1, v) for v in X], 1,
+        if DEBUG_ALLOW_UNASSIGNED:
+            drop_var = pb.new_var()
+            component_drop_vars[r.cid] = drop_var
+            x_to_label[drop_var] = f"drop::{r.cid}"
+            label = f"exactly_one_or_drop::{r.cid}"
+            terms = [(1, v) for v in X] + [(1, drop_var)]
+            pb.add_eq(terms, 1,
                       relax_label=(label if DEBUG_RELAX else None),
-                      info={"kind":"exactly_one","cid":r.cid})
+                      info={"kind":"exactly_one_or_drop","cid":r.cid,"drop":drop_var})
+        else:
+            if not X:
+                label = f"exactly_one_empty::{r.cid}"
+                pb.add_eq([], 1, relax_label=label, info={"kind":"exactly_one_empty","cid":r.cid})
+            else:
+                label = f"exactly_one::{r.cid}"
+                pb.add_eq([(1, v) for v in X], 1,
+                          relax_label=(label if DEBUG_RELAX else None),
+                          info={"kind":"exactly_one","cid":r.cid})
 
     # -------------------- Sibling move links (manual-Both unfreeze) --------------------
     for (A, B, P) in sibling_move_links:
@@ -1032,6 +1049,9 @@ def _encode(args):
                   info={"kind":"both_move_link","A":A,"B":B,"person":P})
 
     penalties: List[Tuple[int, str]] = []
+    if DEBUG_ALLOW_UNASSIGNED and W_DEBUG_UNASSIGNED > 0:
+        for cid, drop_var in component_drop_vars.items():
+            penalties.append((W_DEBUG_UNASSIGNED, drop_var))
     two_day_soft_vars: Dict[str, str] = {}
 
     # -------------------- Sibling anti-dup (names-based exact match) --------------------
@@ -1822,6 +1842,7 @@ def _encode(args):
         "cooldown_pri_ladder_vars":  cooldown_pri_ladder_vars,
         "cooldown_non_ladder_vars":  cooldown_non_ladder_vars,
         # Gate visibility for cooldowns (lets you confirm AUTO was required)
+        "component_drop_vars":       component_drop_vars,
         "two_day_soft_vars": two_day_soft_vars,
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
@@ -1844,6 +1865,8 @@ def _encode(args):
         f"People: {len(people)}",
         f"Components: {len(comps)}",
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
+        f"Allow unassigned components: {'ON' if DEBUG_ALLOW_UNASSIGNED else 'OFF'} "
+        f"(W_DEBUG_UNASSIGNED={W_DEBUG_UNASSIGNED}, drop_vars={len(component_drop_vars)})",
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
