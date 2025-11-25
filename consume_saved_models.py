@@ -149,6 +149,14 @@ def read_varmap(path: Path):
 
     debug_relax_by_var = vm.get('selectors_by_var', {}) or {}
 
+    component_drop_by_cid = vm.get('component_drop_vars', {}) or {}
+    component_drop_by_var = {}
+    for cid, var in component_drop_by_cid.items():
+        if not var:
+            continue
+        label = x_to_label.get(var) or f"drop::{cid}"
+        component_drop_by_var[var] = label
+
     penalty_maps = {
         'CooldownPRI': vm.get('vprev_pri_vars', {}),
         'CooldownNON': vm.get('vprev_non_vars', {}),
@@ -165,6 +173,7 @@ def read_varmap(path: Path):
         'TwoDaySoft': two_day_soft,
         'DeprioritizedPair': vm.get('deprioritized_pair_vars', {}),  # <-- NEW
         'DebugRelax': debug_relax_by_var,
+        'DebugUnassigned': component_drop_by_var,
     }
     config = vm.get('config', {})
     return x_to_label, penalty_maps, config
@@ -334,6 +343,7 @@ def main():
             "n_TwoDaySoft": str(counts.get("TwoDaySoft", 0)),  # <-- NEW
             "n_DeprioritizedPair": str(counts.get("DeprioritizedPair", 0)),  # <-- NEW
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
+            "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
         })
 
         if best_score is None or score < best_score:
@@ -349,7 +359,7 @@ def main():
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
             "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
             "n_TwoDaySoft","n_DeprioritizedPair",
-            "n_DebugRelax"  # <-- NEW column
+            "n_DebugRelax","n_DebugUnassigned"  # <-- NEW columns
         ])
         w.writeheader()
         w.writerows(models_summary)
