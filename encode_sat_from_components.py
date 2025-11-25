@@ -88,7 +88,98 @@ DEFAULT_CONFIG = {
 
     # Optional weight ladder (ordered list where each entry is RATIO× the next)
     "WEIGHT_LADDER": {
-        "ORDER": [],  # strongest → weakest
+        # Strongest → weakest ladder. Enable to derive numeric weights from this
+        # ordering with ``RATIO`` (each rung is ``RATIO``× the next). Inline
+        # notes explain the intent, when the weight triggers, and a concrete
+        # example of a violation that would pay the cost.
+        #   * W1_STREAK – discourages back-to-back weeks in the same priority family;
+        #     activates when a priority person repeats a family across adjacent
+        #     weeks; e.g., Alice serves Family X in weeks 10 and 11.
+        #   * W1_REPEAT – penalizes exceeding the per-family priority repeat cap;
+        #     triggers once a priority person crosses their allowed count; e.g., a
+        #     second assignment to Family X when the limit is 1.
+        #   * W1_COOLDOWN – counts steps inside the priority cooldown ladder;
+        #     activates on short gaps after a priority service; e.g., serving the
+        #     same family again just one week later.
+        #   * W1_COOLDOWN_INTRA – sibling-proximity guard for priority families;
+        #     triggers when a priority person appears twice in the same family
+        #     during sibling-linked weeks; e.g., covering both tokens of a split
+        #     family in the same window.
+        #   * W2_STREAK – discourages back-to-back weeks for non-priority families;
+        #     activates on consecutive non-priority assignments; e.g., Bob handles
+        #     Family Y in weeks 12 and 13.
+        #   * W2_REPEAT – penalizes exceeding the non-priority repeat cap;
+        #     triggers when a non-priority person goes past their family limit;
+        #     e.g., a third assignment where only two were allowed.
+        #   * W2_COOLDOWN – counts steps in the non-priority cooldown ladder;
+        #     activates on short gaps after a non-priority service; e.g., returning
+        #     to a family after a single-week break.
+        #   * W2_COOLDOWN_INTRA – sibling-proximity guard for non-priority families;
+        #     triggers when a non-priority person serves both halves of a sibling
+        #     pair too closely; e.g., covering linked weeks for Family Z.
+        #   * W4 – soft cost for using the “Both” expansion to assign a manual
+        #     pair; activates when a person is auto-selected for a “Both” link;
+        #     e.g., filling both halves of a manual repeat in one step.
+        #   * W4_DPR – same-day deprioritized pair penalty; activates when a person
+        #     takes two tasks forming a deprioritized pair on the same day; e.g.,
+        #     working two incompatible tasks on Saturday.
+        #   * W_PRIORITY_MISS – ensures eligible priority specialists get at least
+        #     one priority task; activates when a top-eligible person receives zero;
+        #     e.g., an expert never assigned any priority work that week.
+        #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
+        #     short-staffed; e.g., only one manual assignment on a day that expects
+        #     two.
+        #   * W_SUNDAY_TWO_DAY – softens named-day bans involving Sunday; activates
+        #     when a person takes two named days including Sunday under softened
+        #     mode; e.g., Tuesday+Sunday combination.
+        #   * W_TWO_DAY_SOFT – general named-day softening; activates when two named
+        #     days are both auto-assigned under soft mode; e.g., taking Monday and
+        #     Wednesday when not fully manual.
+        #   * T1C – pushes broad coverage of top-priority families; activates when
+        #     top-priority capacity goes unused; e.g., skipping a top slot to keep
+        #     someone idle.
+        #   * T2C – secondary priority coverage; activates when secondary priority
+        #     families are left empty after top coverage; e.g., leaving a second-tier
+        #     slot open.
+        #   * W_EFFORT_FLOOR – enforces/encourages ≥target effort for eligible
+        #     people; activates when an eligible person could reach the target but
+        #     does not; e.g., someone capable of 8 effort only gets 6.
+        #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
+        #     is intentionally left unassigned under debug relax mode; e.g., marking
+        #     a hard-to-place component as dropped.
+        #   * W6_UNDER – fairness ladder for under-loaded people; activates when a
+        #     person receives less than peers; e.g., far fewer assignments than the
+        #     median.
+        #   * W6_OVER – fairness ladder for over-loaded people; activates when a
+        #     person receives more than peers; e.g., significantly above-average
+        #     assignment counts.
+        #   * W5 – preferred-pair miss; activates when a feasible preferred pair is
+        #     not scheduled; e.g., two people who like to partner are assigned
+        #     separately.
+        "ENABLED": False,
+        "ORDER": [
+            "W1_STREAK",
+            "W1_REPEAT",
+            "W1_COOLDOWN",
+            "W1_COOLDOWN_INTRA",
+            "W2_STREAK",
+            "W2_REPEAT",
+            "W2_COOLDOWN",
+            "W2_COOLDOWN_INTRA",
+            "W4",
+            "W4_DPR",
+            "W_PRIORITY_MISS",
+            "W3",
+            "W_SUNDAY_TWO_DAY",
+            "W_TWO_DAY_SOFT",
+            "T1C",
+            "T2C",
+            "W_EFFORT_FLOOR",
+            "W_DEBUG_UNASSIGNED",
+            "W6_UNDER",
+            "W6_OVER",
+            "W5",
+        ],
         "RATIO": 100,
         "TOP": None,  # if omitted, anchor to ORDER[0] value from WEIGHTS
     },
@@ -183,7 +274,7 @@ def deep_update(dst: dict, src: dict) -> dict:
 def _apply_weight_ladder(cfg: dict) -> None:
     ladder_cfg = cfg.get("WEIGHT_LADDER") or {}
     order: List[str] = ladder_cfg.get("ORDER") or []
-    if not order:
+    if not ladder_cfg.get("ENABLED") or not order:
         return
 
     ratio = int(ladder_cfg.get("RATIO", 100))

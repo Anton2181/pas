@@ -41,6 +41,7 @@ def test_load_plans_and_scaling(tmp_path: Path) -> None:
 def test_weight_ladder_overrides_weights() -> None:
     overrides = {
         "WEIGHT_LADDER": {
+            "ENABLED": True,
             "ORDER": ["W5", "W4", "W3"],
             "RATIO": 100,
             "TOP": 1_000_000,
@@ -60,7 +61,7 @@ def test_weight_ladder_overrides_weights() -> None:
 def test_weight_ladder_anchors_to_first_weight_when_top_missing() -> None:
     base = encoder.DEFAULT_CONFIG["WEIGHTS"]["W5"]
 
-    cfg = encoder.build_config({"WEIGHT_LADDER": {"ORDER": ["W5", "W3"]}})
+    cfg = encoder.build_config({"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5", "W3"]}})
     weights = cfg["WEIGHTS"]
 
     assert weights["W5"] == base
@@ -68,7 +69,7 @@ def test_weight_ladder_anchors_to_first_weight_when_top_missing() -> None:
 
 
 def test_weight_ladder_requires_ratio_above_one() -> None:
-    overrides = {"WEIGHT_LADDER": {"ORDER": ["W5"], "RATIO": 1}}
+    overrides = {"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5"], "RATIO": 1}}
 
     with pytest.raises(ValueError):
         encoder.build_config(overrides)
