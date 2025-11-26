@@ -366,6 +366,55 @@ def test_effort_floor_hard_skips_when_slots_too_few(tmp_path: Path) -> None:
     assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_slot_capacity"
 
 
+def test_effort_floor_excludes_people_who_cannot_clear_family_blocks(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="AX1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Fam A slot 1",
+            sibling_key="FAM_A",
+            candidates=["Alex"],
+            effort=2.0,
+        ),
+        component_row(
+            cid="AX2",
+            week="Week 1",
+            day="Thursday",
+            task_name="Fam A slot 2",
+            sibling_key="FAM_A",
+            candidates=["Alex"],
+            effort=2.0,
+        ),
+        component_row(
+            cid="BX1",
+            week="Week 1",
+            day="Friday",
+            task_name="Blair slot",
+            candidates=["Blair"],
+            effort=4.0,
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 3,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_family")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_attainable", {}).get("Alex") == 2
+    assert varmap.get("effort_floor_eligible", []) == ["Blair"]
+    notes = varmap.get("effort_floor_notes", {})
+    assert notes.get("ineligible_by_attainable", {}).get("Alex") == 2
+    assert varmap.get("effort_floor_feasible") is True
+    assert varmap.get("effort_floor_hard_applied") is True
+
+
 def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
     comps = [
         component_row(

@@ -1715,11 +1715,13 @@ def _encode(args):
     person_effort_caps: Dict[str, int] = {}
     person_effort_terms_effort: Dict[str, List[Tuple[int, str]]] = {}
     person_effort_caps_effort: Dict[str, int] = {}
+    effort_floor_attainable: Dict[str, int] = {}
     for p in people:
         terms_p: List[Tuple[int, str]] = []
         terms_effort: List[Tuple[int, str]] = []
         U_p = 0
         U_effort = 0
+        attainable_groups: Dict[Tuple[str, str], int] = {}
         for r in comps:
             if p in cand.get(r.cid, []):
                 tc = max(1, int(r.task_count))
@@ -1729,12 +1731,22 @@ def _encode(args):
                 effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
                 terms_effort.append((effort_units, xv(r.cid, p)))
                 U_effort += effort_units
+
+                week_key = trim(getattr(r, "week", ""))
+                fam_tokens = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
+                fam_tokens = tuple(trim(f) for f in fam_tokens if trim(f))
+                if not fam_tokens:
+                    fam_tokens = (r.cid,)
+                for fam in fam_tokens:
+                    gkey = (week_key, fam)
+                    attainable_groups[gkey] = max(attainable_groups.get(gkey, 0), effort_units)
         if terms_p and U_p > 0:
             person_effort_terms[p] = terms_p
             person_effort_caps[p] = U_p
         if terms_effort and U_effort > 0:
             person_effort_terms_effort[p] = terms_effort
             person_effort_caps_effort[p] = U_effort
+            effort_floor_attainable[p] = sum(attainable_groups.values())
 
     if fairness_reference not in {"auto", "all"}:
         fairness_reference = "auto"
@@ -1813,7 +1825,8 @@ def _encode(args):
     if EFFORT_FLOOR_TARGET > 0:
         for p, terms_p in person_effort_terms_effort.items():
             U_p = person_effort_caps_effort.get(p, 0)
-            if U_p < EFFORT_FLOOR_TARGET:
+            attainable = effort_floor_attainable.get(p, 0)
+            if U_p < EFFORT_FLOOR_TARGET or attainable < EFFORT_FLOOR_TARGET:
                 continue
             effort_floor_eligible.append(p)
             eligible_terms.append((p, terms_p, U_p))
@@ -1834,7 +1847,22 @@ def _encode(args):
             "demand": effort_floor_demand,
             "supply_effort": effort_floor_supply_effort,
             "supply_capped": effort_floor_supply_capped,
+            "attainable_caps": {p: effort_floor_attainable.get(p, 0) for p in people},
         }
+        if effort_floor_eligible:
+            effort_floor_notes["eligible_attainable_min"] = min(
+                effort_floor_attainable.get(p, 0) for p in effort_floor_eligible
+            )
+            effort_floor_notes["eligible_attainable_max"] = max(
+                effort_floor_attainable.get(p, 0) for p in effort_floor_eligible
+            )
+        if len(effort_floor_eligible) < len(person_effort_terms_effort):
+            missing = {
+                p: effort_floor_attainable.get(p, 0)
+                for p in person_effort_terms_effort
+                if p not in effort_floor_eligible
+            }
+            effort_floor_notes["ineligible_by_attainable"] = missing
         if effort_floor_demand > effort_floor_supply_effort:
             effort_floor_feasible = False
             effort_floor_notes["reason"] = "insufficient_global_effort"
@@ -2123,6 +2151,7 @@ def _encode(args):
         "effort_floor_hard_applied": effort_floor_hard_applied,
         "effort_floor_notes": effort_floor_notes,
         "effort_floor_eligible": sorted(effort_floor_eligible),
+        "effort_floor_attainable": effort_floor_attainable,
         "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
         "fairness_availability": fairness_target_notes,
@@ -2162,7 +2191,9 @@ def _encode(args):
             f"feasible={feas_note}, eligible_people={len(effort_floor_eligible)}, "
             f"demand={effort_floor_notes.get('demand', 0)}, "
             f"supply_effort={effort_floor_notes.get('supply_effort', 0)}, "
-            f"supply_capped={effort_floor_notes.get('supply_capped', 0)}"
+            f"supply_capped={effort_floor_notes.get('supply_capped', 0)}, "
+            f"attainable_min={effort_floor_notes.get('eligible_attainable_min', 0)}, "
+            f"attainable_max={effort_floor_notes.get('eligible_attainable_max', 0)}"
         )
     stats.extend([
         "Day rules:",
