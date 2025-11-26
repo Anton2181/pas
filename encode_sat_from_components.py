@@ -1115,6 +1115,9 @@ def _encode(args):
     # -------------------- Prebuild x-variables --------------------
     pb = PBWriter(debug_relax=DEBUG_RELAX, W_HARD=W_HARD)
 
+    def debug_relax_label(label: str, *, allow_relax: bool = True) -> str | None:
+        return label if (DEBUG_RELAX and allow_relax) else None
+
     x_index: Dict[Tuple[str, str], str] = {}
     x_to_label: Dict[str, str] = {}
     for r in comps:
@@ -1413,10 +1416,15 @@ def _encode(args):
                     gate = make_and(pb, T_both_weeks, AutoEither)
                     V_pri = make_and(pb, gate, PriEither)
                     if PRIORITY_COOLDOWN_HARD:
-                        pb.add_le([(1, V_pri)], 0,
-                                  relax_label=(f"cooldown_prev_hard_PRI::fam={fam_trim}::W{w}::{p}" if DEBUG_RELAX else None),
-                                  M=1,
-                                  info={"kind":"cooldown_prev_hard_PRI","week":str(w),"person":p,"family":fam_trim})
+                        pb.add_le(
+                            [(1, V_pri)],
+                            0,
+                            relax_label=debug_relax_label(
+                                f"cooldown_prev_hard_PRI::fam={fam_trim}::W{w}::{p}", allow_relax=False
+                            ),
+                            M=1,
+                            info={"kind": "cooldown_prev_hard_PRI", "week": str(w), "person": p, "family": fam_trim},
+                        )
                     else:
                         cooldown_viols_pri[(p, fam_trim)].append(V_pri)
                         cooldown_gate_info[V_pri] = {
@@ -1440,10 +1448,15 @@ def _encode(args):
                     V_non = make_and(pb, not_pri, AutoEither)
 
                 if NONPRIORITY_COOLDOWN_HARD:
-                    pb.add_le([(1, V_non)], 0,
-                              relax_label=(f"cooldown_prev_hard_NON::fam={fam_trim}::W{w}::{p}" if DEBUG_RELAX else None),
-                              M=1,
-                              info={"kind":"cooldown_prev_hard_NON","week":str(w),"person":p,"family":fam_trim})
+                    pb.add_le(
+                        [(1, V_non)],
+                        0,
+                        relax_label=debug_relax_label(
+                            f"cooldown_prev_hard_NON::fam={fam_trim}::W{w}::{p}", allow_relax=False
+                        ),
+                        M=1,
+                        info={"kind": "cooldown_prev_hard_NON", "week": str(w), "person": p, "family": fam_trim},
+                    )
                 else:
                     cooldown_viols_non[(p, fam_trim)].append(V_non)
                     cooldown_gate_info[V_non] = {
@@ -1847,7 +1860,7 @@ def _encode(args):
                     pb.add_ge(
                         terms_p,
                         EFFORT_FLOOR_TARGET,
-                        relax_label=f"effort_floor_hard::{p}" if DEBUG_RELAX else None,
+                        relax_label=debug_relax_label(f"effort_floor_hard::{p}", allow_relax=False),
                         info={"kind": "effort_floor_hard", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
                     )
                     effort_floor_hard_applied = True
@@ -1903,7 +1916,9 @@ def _encode(args):
                     pb.add_le(
                         pri_terms_pf,
                         LIMIT_PRI,
-                        relax_label=(f"repeat_limit_PRI_hard::{p}::fam={fam_trim}" if DEBUG_RELAX else None),
+                        relax_label=debug_relax_label(
+                            f"repeat_limit_PRI_hard::{p}::fam={fam_trim}", allow_relax=False
+                        ),
                         M=len(pri_terms_pf),
                         info={
                             "kind": "repeat_limit_PRI_hard",
@@ -1942,7 +1957,9 @@ def _encode(args):
                     pb.add_le(
                         non_terms_pf,
                         LIMIT_NON,
-                        relax_label=(f"repeat_limit_NON_hard::{p}::fam={fam_trim}" if DEBUG_RELAX else None),
+                        relax_label=debug_relax_label(
+                            f"repeat_limit_NON_hard::{p}::fam={fam_trim}", allow_relax=False
+                        ),
                         M=len(non_terms_pf),
                         info={
                             "kind": "repeat_limit_NON_hard",

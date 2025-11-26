@@ -294,7 +294,7 @@ def test_effort_floor_targets_only_eligible(tmp_path: Path) -> None:
     assert not any("Casey" in lbl for lbl in labels)
 
 
-def test_effort_floor_hard_relax_label(tmp_path: Path) -> None:
+def test_effort_floor_hard_ignores_debug_relax(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
         for i in range(1, 9)
@@ -312,7 +312,8 @@ def test_effort_floor_hard_relax_label(tmp_path: Path) -> None:
     varmap = _load_varmap(paths["map"])
 
     selectors = varmap.get("selectors", {})
-    assert any("effort_floor_hard::Alex" in label for label in selectors)
+    assert selectors  # baseline debug selectors still populate
+    assert not any("effort_floor_hard::Alex" in label for label in selectors)
 
 
 def test_effort_floor_hard_skips_when_infeasible(tmp_path: Path) -> None:
@@ -363,6 +364,31 @@ def test_effort_floor_hard_skips_when_slots_too_few(tmp_path: Path) -> None:
     assert varmap.get("effort_floor_feasible") is False
     assert varmap.get("effort_floor_hard_applied") is False
     assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_slot_capacity"
+
+
+def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="W1P", week="Week 1", day="Tuesday", task_name="Week1 Priority", candidates=["Alex", "Blair"], priority=True
+        ),
+        component_row(
+            cid="W2P", week="Week 2", day="Tuesday", task_name="Week2 Priority", candidates=["Alex", "Blair"], priority=True
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_RELAX": True,
+        "PRIORITY_COOLDOWN_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="cooldown_hard")
+    selectors = _load_varmap(paths["map"]).get("selectors", {})
+
+    assert selectors  # debug relax still captures other constraints
+    assert not any("cooldown_prev_hard_PRI" in label for label in selectors)
 
 
 def test_pipeline_produces_assignments(tmp_path: Path) -> None:
