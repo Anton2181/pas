@@ -280,6 +280,7 @@ def _greedy_effort_floor_probe(
     comps: List[CompRow],
     candidates: Dict[str, List[str]],
     original_manual: Dict[str, bool],
+    blocked: Dict[str, Set[str]] | None = None,
 ) -> tuple[bool, dict]:
     """Attempt to cover the effort floor using a conservative greedy heuristic.
 
@@ -323,6 +324,8 @@ def _greedy_effort_floor_probe(
         # Assign to the person with the highest remaining need that can legally take it.
         for person in sorted(remaining, key=lambda p: remaining[p], reverse=True):
             if remaining[person] <= 0:
+                continue
+            if blocked and r.cid in blocked.get(person, set()):
                 continue
             if person not in candidates.get(r.cid, []):
                 continue
@@ -1779,6 +1782,10 @@ def _encode(args):
     candidate_effort_total: Dict[str, int] = defaultdict(int)
     candidate_effort_auto: Dict[str, int] = defaultdict(int)
     component_effort_units: Dict[str, int] = {}
+    # Track per-person/day totals so the effort-floor eligibility can respect the
+    # AUTO-day rule (needs ≥2 task_count on any day that includes AUTO).
+    person_day_taskcount: Dict[Tuple[str, int, str], int] = defaultdict(int)
+    person_day_has_auto: Dict[Tuple[str, int, str], bool] = defaultdict(bool)
     for r in comps:
         tc = max(1, int(r.task_count))
         is_manual_flag = bool(original_manual.get(r.cid, False))
@@ -1786,6 +1793,10 @@ def _encode(args):
             candidate_effort_total[p] += tc
             if not is_manual_flag:
                 candidate_effort_auto[p] += tc
+            day_key = (p, r.week_num, trim(getattr(r, "day", "")))
+            person_day_taskcount[day_key] += tc
+            if not is_manual_flag:
+                person_day_has_auto[day_key] = True
 
         effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
         component_effort_units[r.cid] = effort_units
@@ -1795,6 +1806,8 @@ def _encode(args):
     person_effort_terms_effort: Dict[str, List[Tuple[int, str]]] = {}
     person_effort_caps_effort: Dict[str, int] = {}
     effort_floor_attainable: Dict[str, int] = {}
+    effort_floor_auto_blocked: Dict[str, Dict[Tuple[int, str], Dict[str, int]]] = {}
+    effort_floor_blocked_cids: Dict[str, Set[str]] = defaultdict(set)
     for p in people:
         terms_p: List[Tuple[int, str]] = []
         terms_effort: List[Tuple[int, str]] = []
@@ -1808,8 +1821,26 @@ def _encode(args):
                 U_p += tc
 
                 effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
-                terms_effort.append((effort_units, xv(r.cid, p)))
-                U_effort += effort_units
+                # Respect AUTO-day minimums when building effort-floor capacity.
+                week_key = int(getattr(r, "week_num", 0) or 0)
+                day_key = trim(getattr(r, "day", ""))
+                pd_key = (p, week_key, day_key)
+                auto_for_day = person_day_has_auto.get(pd_key, False)
+                day_capacity = person_day_taskcount.get(pd_key, 0)
+                auto_blocked = (auto_for_day and day_capacity < 2 and not original_manual.get(r.cid, False))
+                if auto_blocked:
+                    blocked_key = f"W{week_key}:{day_key or 'UNSPEC'}"
+                    effort_floor_auto_blocked.setdefault(p, {})[blocked_key] = {
+                        "total_task_count": day_capacity,
+                        "component": r.cid,
+                        "effort_units": effort_units,
+                        "week": week_key,
+                        "day": day_key,
+                    }
+                    effort_floor_blocked_cids[p].add(r.cid)
+                else:
+                    terms_effort.append((effort_units, xv(r.cid, p)))
+                    U_effort += effort_units
 
                 week_key = trim(getattr(r, "week", ""))
                 fam_tokens = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
@@ -1928,6 +1959,11 @@ def _encode(args):
             "supply_capped": effort_floor_supply_capped,
             "attainable_caps": {p: effort_floor_attainable.get(p, 0) for p in people},
         }
+        if effort_floor_auto_blocked:
+            effort_floor_notes["auto_day_blocked"] = effort_floor_auto_blocked
+        if not effort_floor_eligible:
+            effort_floor_feasible = False
+            effort_floor_notes.setdefault("reason", "no_eligible_people")
         if effort_floor_eligible:
             effort_floor_notes["eligible_attainable_min"] = min(
                 effort_floor_attainable.get(p, 0) for p in effort_floor_eligible
@@ -1956,6 +1992,7 @@ def _encode(args):
                 comps=comps,
                 candidates=cand,
                 original_manual=original_manual,
+                blocked=effort_floor_blocked_cids,
             )
             effort_floor_notes["feasibility_probe"] = probe_notes
             if not probe_ok:

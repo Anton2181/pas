@@ -434,11 +434,34 @@ def test_effort_floor_skips_when_two_day_probe_fails(tmp_path: Path) -> None:
 
     assert varmap.get("effort_floor_feasible") is False
     assert varmap.get("effort_floor_hard_applied") is False
-    assert varmap.get("effort_floor_notes", {}).get("reason") == "feasibility_probe_failed"
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "no_eligible_people"
 
-    probe = varmap.get("effort_floor_notes", {}).get("feasibility_probe", {})
-    assert probe.get("covered_effort", {}).get("Alex") == 1
-    assert probe.get("covered_effort", {}).get("Blair") == 1
+
+def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="AUTO1", week="Week 1", day="Tuesday", task_name="Auto Solo", candidates=["Alex"], effort=1.0),
+        component_row(cid="AUTO2", week="Week 1", day="Wednesday", task_name="Auto Pair", candidates=["Blair"], effort=2.0),
+    ]
+    comps[1]["Task Count"] = "2"
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_auto")
+    varmap = _load_varmap(paths["map"])
+
+    # Alex cannot satisfy the AUTO-day ≥2 rule, so he should be excluded from the floor.
+    assert varmap.get("effort_floor_eligible", []) == ["Blair"]
+    blocked = varmap.get("effort_floor_notes", {}).get("auto_day_blocked", {})
+    assert "Alex" in blocked
+    assert blocked["Alex"].get("W1:Tuesday", {}).get("total_task_count") == 1
+    assert varmap.get("effort_floor_feasible") is True
+    assert varmap.get("effort_floor_hard_applied") is True
 
 
 def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
