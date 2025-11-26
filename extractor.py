@@ -545,6 +545,26 @@ class DecisionLogger:
             w.writeheader()
             for r in self.rows: w.writerow({k: r.get(k, "") for k in DECISION_FIELDS})
 
+
+def exclusion_violation(
+    day_assign: Dict[str, Dict[int, Set[str]]],
+    excl_map: Dict[str, Set[str]],
+    task: "Task",
+    m_idx: int,
+) -> bool:
+    """Return True if assigning task to m_idx would violate exclusions on that day.
+
+    One-candidate pools override exclusions so they can be promoted to manual assignments.
+    """
+    if len(getattr(task, "available", [])) == 1:
+        return False
+    dkey = f"{task.week}|{task.day}"
+    already = day_assign[dkey].get(m_idx, set())
+    for n in already:
+        if n in excl_map.get(task.name, set()):
+            return True
+    return False
+
 # ------------------------ Helpers -------------------------------------
 
 def _existing_component_ids(comp_map: Dict[str, List[int]], tasks: List[Task]) -> Set[str]:
@@ -846,11 +866,7 @@ def main():
     day_assign: Dict[str, Dict[int, Set[str]]] = defaultdict(lambda: defaultdict(set))
 
     def violates_exclusions(task: Task, m_idx: int) -> bool:
-        dkey = same_day_key(task); already = day_assign[dkey].get(m_idx, set())
-        for n in already:
-            if n in excl_map.get(task.name, set()):
-                return True
-        return False
+        return exclusion_violation(day_assign, excl_map, task, m_idx)
 
     def record_day_assign(task: Task, m_idx: int):
         dkey = same_day_key(task); day_assign[dkey][m_idx].add(task.name)
