@@ -42,13 +42,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 # =============== CONFIG (flags + weights together) ====================
 DEFAULT_CONFIG = {
     # Debug / relax selectors
-    "DEBUG_RELAX": False,
+    "DEBUG_RELAX": True,
     "DEBUG_ALLOW_UNASSIGNED": False,
     "W_HARD": 1_000_000_000_000_000_000_000,  # ≥ W1
 
     # Minimum-effort encouragement
-    "EFFORT_FLOOR_TARGET": 8,
-    "EFFORT_FLOOR_HARD": False,
+    "EFFORT_FLOOR_TARGET": 6,
+    "EFFORT_FLOOR_HARD": True,
 
     # Cooldown options (prev-week; separate from repeat limits below)
     "PRIORITY_COOLDOWN_HARD": False,
@@ -78,7 +78,7 @@ DEFAULT_CONFIG = {
     # Auto-softening: detect families with very few eligible people and skip
     # building the harshest cooldown/repeat penalties for them.
     "AUTO_SOFTEN": {
-        "ENABLED": True,
+        "ENABLED": False,
         "MIN_UNIQUE_CANDIDATES": 3,
         "MAX_SLOTS_PER_PERSON": 1.5,
         "RELAX_COOLDOWN": True,
@@ -182,7 +182,7 @@ DEFAULT_CONFIG = {
             "W6_UNDER",
             "W6_OVER",
         ],
-        "RATIO": 100,
+        "RATIO": 10,
         # Optional anchor for the strongest rung. If omitted, it defaults to
         # ``RATIO ** (len(ORDER) - 1)`` so the weakest rung bottoms out at ~1.
         "TOP": None,
@@ -195,7 +195,7 @@ DEFAULT_CONFIG = {
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
-            "ENABLED": True,
+            "ENABLED": False,
             "REFERENCE": "auto",  # "auto" or "all"
             "MIN_RATIO": 0.35,
             "MAX_RATIO": 1.85,
