@@ -54,16 +54,21 @@ def test_weight_ladder_overrides_weights() -> None:
     assert weights["W5"] == 1_000_000
     assert weights["W4"] == 10_000
     assert weights["W3"] == 100
-    # Unlisted weights should remain anchored to the defaults
-    assert weights["W1_COOLDOWN"] == encoder.DEFAULT_CONFIG["WEIGHTS"]["W1_COOLDOWN"]
+    # Default ladder entries get appended so core weights still receive values
+    assert weights["W1_COOLDOWN"] > 0
+    # Non-weight helper config is preserved
+    assert weights["FAIRNESS_AVAILABILITY"]["ENABLED"] is True
 
 
 def test_weight_ladder_anchors_to_first_weight_when_top_missing() -> None:
     cfg = encoder.build_config({"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5", "W3"]}})
     weights = cfg["WEIGHTS"]
 
-    assert weights["W5"] == 100
-    assert weights["W3"] == 1
+    expected_top = cfg["WEIGHT_LADDER"]["RATIO"] ** (
+        len(cfg["WEIGHT_LADDER"]["ORDER"]) - 1
+    )
+    assert weights["W5"] == expected_top
+    assert weights["W3"] == max(1, expected_top // cfg["WEIGHT_LADDER"]["RATIO"])
 
 
 def test_weight_ladder_requires_ratio_above_one() -> None:

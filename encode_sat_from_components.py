@@ -158,7 +158,7 @@ DEFAULT_CONFIG = {
         #   * W6_OVER – fairness ladder for over-loaded people; activates when a
         #     person receives more than peers; e.g., significantly above-average
         #     assignment counts.
-        "ENABLED": False,
+        "ENABLED": True,
         "ORDER": [
             "W_DEBUG_UNASSIGNED",
             "W4",
@@ -183,44 +183,14 @@ DEFAULT_CONFIG = {
             "W6_OVER",
         ],
         "RATIO": 100,
-        "TOP": None,  # if omitted, anchor to ORDER[0] value from WEIGHTS
+        # Optional anchor for the strongest rung. If omitted, it defaults to
+        # ``RATIO ** (len(ORDER) - 1)`` so the weakest rung bottoms out at ~1.
+        "TOP": None,
     },
 
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
-        # --- PRIORITY (Tier 1) ---
-        "W1_COOLDOWN": 1_000_000_000_000_000,  # PRI cooldown ladder base (per counted violation step)
-        "W1_REPEAT": 5 * 1_000_000_000_000_000,  # PRI repeat-over ladder base (above per-family limit)
-        "W1_STREAK": 25 * 1_000_000_000_000_000,  # PRI cooldown streak (back-to-back weeks in same family)
-        "W_PRIORITY_MISS": 3_000_000_000,  # Heavy penalty when a TOP-eligible person receives zero priority tasks
-
-        "W1_COOLDOWN_INTRA": 10_000_000_000_000_000_000,  # default = W1_COOLDOWN
-        "W2_COOLDOWN_INTRA": 500_000_000_000_000,      # default = W2_COOLDOWN
-
-        # --- NON-PRIORITY (Tier 2) ---
-        "W2_COOLDOWN": 500_000_000_000_000,  # NON-PRI cooldown ladder base
-        "W2_REPEAT": 2_500_000_000_000_000,  # NON-PRI repeat-over ladder base
-        "W2_STREAK": 12_500_000_000_000_000,  # NON-PRI cooldown streak (back-to-back weeks)
-
-        "W4": 10 * 1_000_000_000_000,  # Penalty for using “Both” expansion assignment
-
-        # --- Tier 3: same-day “fill to 2” nudger on manual-only days when ≥2 is expected ---
-        "W3": 250_000,  # Encourage ≥2 tasks for a person/day when a manual-only day would be thin
-
-        # --- Tier 4: “Both” fallback + deprioritized pair (same-day) ---
-        "W4_DPR": 250_000_000_000,  # Soft cost for taking two tasks that form a deprioritized pair on same (week,day)
-
-        # --- Tier 5: preferred-pair miss (per feasible unordered pair count) ---
-        "W5": 250,  # Penalize when a feasible preferred pair is not realized
-
-        # --- Tier 6: across-horizon fairness (convex ladders) ---
-        "W6_OVER": 2,  # Over-load ladder base multiplier
-        "W6_UNDER": 5,  # Under-load ladder base multiplier
-
-        # --- Effort floor nudger ---
-        "W_EFFORT_FLOOR": 1_000_000_000_000_000_000,
-
-        # --- Debug helpers ---
+        # --- Debug helper (other weights are derived from the ladder) ---
         "W_DEBUG_UNASSIGNED": 1_000_000_000_000_000_000,
 
         # Availability-aware fairness scaling (Tier-6 helper)
@@ -232,14 +202,6 @@ DEFAULT_CONFIG = {
             "POWER": 0.75,
         },
 
-        # --- Priority coverage pressure ---
-        "T1C": 100_000_000_000_000_000,  # Encourage wide coverage of TOP-priority tasks
-        "T2C": 500_000_000,  # Encourage SECOND-priority, gated by not already TOP
-
-        # --- Two-day rule softening ---
-        "W_SUNDAY_TWO_DAY": 10_000_000_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
-        "W_TWO_DAY_SOFT": 2_000_000_000,
-        # Soft cost when two named days aren’t BOTH manual (soft modes)
     },
 
     # Banned unordered person pairs
@@ -364,6 +326,12 @@ def _apply_weight_ladder(cfg: dict) -> None:
     ratio = int(ladder_cfg.get("RATIO", 100))
     if ratio <= 1:
         raise ValueError("WEIGHT_LADDER.RATIO must be >1")
+
+    # Ensure every known weight gets a derived value by appending any missing
+    # defaults after a custom ORDER prefix.
+    default_order = [w for w in DEFAULT_CONFIG.get("WEIGHT_LADDER", {}).get("ORDER", []) if w not in order]
+    order = [*order, *default_order]
+    cfg.setdefault("WEIGHT_LADDER", {})["ORDER"] = order
 
     weights = copy.deepcopy(cfg.get("WEIGHTS", {}))
     top = ladder_cfg.get("TOP")
@@ -2290,7 +2258,7 @@ def _encode(args):
     if ladder_order:
         anchor_desc = ladder_cfg.get("TOP")
         if anchor_desc is None:
-            anchor_desc = f"WEIGHTS[{ladder_order[0]}]"
+            anchor_desc = ladder_cfg.get("RATIO", 100) ** max(len(ladder_order) - 1, 0)
         stats.append(
             "Weight ladder: "
             f"ratio={ladder_cfg.get('RATIO', 100)}, anchor={anchor_desc}, "
