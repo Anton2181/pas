@@ -244,3 +244,101 @@ def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     assert models_rows and models_rows[0].get("n_EffortFloor") == "1"
     assert "EffortFloor" in (models_rows[0].get("penalties") or "")
 
+
+def test_penalties_include_weights(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="R1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Repeat A",
+            candidates=["Alex", "Blair"],
+            sibling_key="FamRepeat",
+            priority=True,
+        ),
+        component_row(
+            cid="R2",
+            week="Week 2",
+            day="Tuesday",
+            task_name="Repeat B",
+            candidates=["Alex", "Blair"],
+            sibling_key="FamRepeat",
+            priority=True,
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "REPEAT_OVER_GEO": 3,
+        "REPEAT_LIMIT": {"PRI": 1, "NON": 1},
+        "WEIGHTS": {"W1_REPEAT": 100},
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="consume_weight")
+    varmap = json.loads(paths["map"].read_text(encoding="utf-8"))
+
+    repeat_vars = varmap.get("repeat_limit_pri_vars", {}) or varmap.get("repeat_limit_non_vars", {})
+    assert repeat_vars
+    target_var, target_label = next(iter(repeat_vars.items()))
+    penalty_weights = varmap.get("penalty_weights", {})
+
+    models_txt = tmp_path / "models_repeat.txt"
+    models_txt.write_text(f"v {target_var}\n", encoding="utf-8")
+
+    penalties_out = tmp_path / "penalties_repeat.csv"
+    models_out = tmp_path / "models_summary_repeat.csv"
+    assigned_out = tmp_path / "assigned_repeat.csv"
+    loads_out = tmp_path / "loads_repeat.csv"
+    bars_out = tmp_path / "bars_repeat.png"
+    lorenz_out = tmp_path / "lorenz_repeat.png"
+
+    env = os.environ.copy()
+    env.setdefault("MPLBACKEND", "Agg")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(ROOT / "consume_saved_models.py"),
+            "--models",
+            str(models_txt),
+            "--varmap",
+            str(paths["map"]),
+            "--components",
+            str(paths["components"]),
+            "--metric",
+            "effort",
+            "--plots-bars",
+            str(bars_out),
+            "--plots-lorenz",
+            str(lorenz_out),
+            "--assigned-out",
+            str(assigned_out),
+            "--models-out",
+            str(models_out),
+            "--loads-out",
+            str(loads_out),
+            "--penalties-out",
+            str(penalties_out),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    with penalties_out.open("r", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    row = next(r for r in rows if r["Var"] == target_var)
+
+    over_t = int(row.get("OverT") or 0)
+    over_limit = int(row.get("OverLimit") or 0)
+    over_count = over_t - over_limit
+
+    cfg = varmap["config"]
+    is_priority = "::PRI::" in target_label
+    base_weight = cfg["WEIGHTS"]["W1_REPEAT" if is_priority else "W2_REPEAT"]
+    expected_weight = int(base_weight) * (int(cfg["REPEAT_OVER_GEO"]) ** (over_count - 1))
+
+    assert row.get("Weight") == str(expected_weight)
+    assert penalty_weights.get(target_var) == expected_weight
+

@@ -2213,11 +2213,14 @@ def _encode(args):
         for fam, meta in softener.notes.items()
     }
 
+    penalty_weights = {v: int(w) for w, v in penalties}
+
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
         "q_vars":                    {},
         "selectors":                 pb._selmap,
         "selectors_by_var":          selectors_by_var,
+        "penalty_weights":           penalty_weights,
         "manual_components":         {r.cid: bool(is_manual.get(r.cid, False)) for r in comps},
         "manual_components_original":{r.cid: bool(original_manual.get(r.cid, False)) for r in comps},
         "both_fallback_vars":        both_fallback_vars,

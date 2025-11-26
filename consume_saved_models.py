@@ -129,6 +129,7 @@ def read_varmap(path: Path):
     vm = json.loads(path.read_text(encoding='utf-8'))
     x_to_label: Dict[str,str] = vm.get('x_to_label', {})
     manual_original = {cid for cid, flag in (vm.get('manual_components_original') or {}).items() if flag}
+    penalty_weights = vm.get('penalty_weights', {}) or {}
 
     # Optional maps (present in newer encoders)
     vprev_pri_vars     = vm.get('vprev_pri_vars', {})      # may be missing in current encoder
@@ -186,7 +187,7 @@ def read_varmap(path: Path):
         'DebugUnassigned': component_drop_by_var,
     }
     config = vm.get('config', {})
-    return x_to_label, penalty_maps, config
+    return x_to_label, penalty_maps, config, penalty_weights
 
 
 def load_components_info(path: Path):
@@ -284,6 +285,7 @@ def find_penalties(
     true_vars: List[str],
     penalty_maps: Dict[str, Dict[str, str]],
     manual_cids_from_input: Set[str] | None = None,
+    penalty_weights: Dict[str, int] | None = None,
 ):
     var_to_cat = {}
     var_to_label = {}
@@ -298,6 +300,7 @@ def find_penalties(
         if v in var_to_cat:
             cat = var_to_cat[v]
             lbl = var_to_label.get(v, "")
+            weight = (penalty_weights or {}).get(v)
 
             # Skip DebugUnassigned penalties for components that were already
             # manually assigned in the input — they are not solver decisions.
@@ -310,12 +313,12 @@ def find_penalties(
                 if cid in manual_cids_from_input:
                     continue
 
-            activations.append((v, cat, lbl))
+            activations.append((v, cat, lbl, weight))
         else:
             unknown_true.append(v)
 
     counts: Dict[str,int] = {}
-    for _, cat, _ in activations:
+    for _, cat, _, _ in activations:
         counts[cat] = counts.get(cat, 0) + 1
 
     return activations, counts, unknown_true
@@ -330,7 +333,7 @@ def main():
         print("No models found in the provided file (no 'v ...' lines).", file=sys.stderr)
         sys.exit(1)
 
-    x_to_label, penalty_maps, config = read_varmap(args.varmap)
+    x_to_label, penalty_maps, config, penalty_weights = read_varmap(args.varmap)
     comp_rows, comp_info = load_components_info(args.components)
     comp_week, comp_fams, manual_cids_from_input = extract_comp_meta(comp_rows)
     manual_components_from_input, manual_loads_by_person = compute_manual_loads(comp_rows, comp_info, args.metric)
@@ -347,9 +350,9 @@ def main():
     for idx, true_vars in enumerate(models_true_vars, start=1):
         pairs = decode_pairs(true_vars, x_to_label)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
-        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps, manual_cids_from_input)
+        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps, manual_cids_from_input, penalty_weights)
         penalty_summary = "; ".join(
-            f"{cat}:{label}" if label else cat for _, cat, label in sorted(acts, key=lambda t: (t[1], t[0]))
+            f"{cat}:{label}" if label else cat for _, cat, label, _ in sorted(acts, key=lambda t: (t[1], t[0]))
         )
 
         models_summary.append({
@@ -536,9 +539,21 @@ def main():
         with open(args.penalties_out, 'w', newline='', encoding='utf-8') as fh:
             w = csv.writer(fh)
             # AdjPairs column shows WkFrom->WkTo pairs that fed each cooldown ladder
-            w.writerow(["Var","Category","Label","IgnoredPairsK","OverT","OverLimit","WeekFrom","WeekTo","AdjPairs"])
-            for v, cat, label in sorted(best_penalty_acts, key=lambda t: (t[1], t[0])):
+            w.writerow([
+                "Var",
+                "Category",
+                "Label",
+                "Weight",
+                "IgnoredPairsK",
+                "OverT",
+                "OverLimit",
+                "WeekFrom",
+                "WeekTo",
+                "AdjPairs",
+            ])
+            for v, cat, label, weight in sorted(best_penalty_acts, key=lambda t: (t[1], t[0])):
                 K = over_t = over_lim = wfrom = wto = adj_pairs = ""
+                weight_str = "" if weight is None else str(weight)
 
                 if cat == "PreferredMiss":
                     m = pref_k_re.search(label or "")
@@ -565,7 +580,7 @@ def main():
                     if m:
                         wfrom, wto = f"W{m.group(1)}", f"W{m.group(2)}"
 
-                w.writerow([v, cat, label, K, over_t, over_lim, wfrom, wto, adj_pairs])
+                w.writerow([v, cat, label, weight_str, K, over_t, over_lim, wfrom, wto, adj_pairs])
 
         print(f"Wrote penalty activations → {args.penalties_out}")
         print(f"Wrote cooldown debug → {args.cooldown_debug_out}")
@@ -583,8 +598,10 @@ def main():
         family_re   = re.compile(r'::family=([^:]+)')
 
         by_cat: Dict[str, List[Tuple[str,str,str]]] = {}
-        for v, cat, label in best_penalty_acts:
+        for v, cat, label, weight in best_penalty_acts:
             hint_parts: List[str] = []
+            if weight is not None:
+                hint_parts.append(f"w={weight}")
 
             if cat == "PreferredMiss":
                 m = pref_k_re.search(label or "")
