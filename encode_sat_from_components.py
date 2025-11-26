@@ -369,11 +369,7 @@ def _apply_weight_ladder(cfg: dict) -> None:
     top = ladder_cfg.get("TOP")
     anchor = int(top) if top is not None else None
     if anchor is None:
-        first = order[0]
-        if first in weights:
-            anchor = int(weights[first])
-    if anchor is None:
-        anchor = max(1, int(cfg.get("W_HARD", 1_000_000)) // ratio)
+        anchor = int(ratio ** max(len(order) - 1, 0))
 
     current = anchor
     for name in order:

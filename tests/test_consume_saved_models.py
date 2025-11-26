@@ -86,6 +86,7 @@ def test_debug_unassigned_penalty_counts(tmp_path: Path) -> None:
     with models_out.open("r", encoding="utf-8") as fh:
         models_rows = list(csv.DictReader(fh))
     assert models_rows and models_rows[0].get("n_DebugUnassigned") == "1"
+    assert "DebugUnassigned" in (models_rows[0].get("penalties") or "")
 
 
 def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
@@ -96,6 +97,8 @@ def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {
         "WEIGHTS": {"W_EFFORT_FLOOR": 17},
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": False,
         "AUTO_SOFTEN": {"ENABLED": False},
         "BANNED_SIBLING_PAIRS": [],
         "BANNED_SAME_DAY_PAIRS": [],
@@ -156,4 +159,5 @@ def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     with models_out.open("r", encoding="utf-8") as fh:
         models_rows = list(csv.DictReader(fh))
     assert models_rows and models_rows[0].get("n_EffortFloor") == "1"
+    assert "EffortFloor" in (models_rows[0].get("penalties") or "")
 

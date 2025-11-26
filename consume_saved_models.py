@@ -322,6 +322,9 @@ def main():
         pairs = decode_pairs(true_vars, x_to_label)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
         acts, counts, unknown_true = find_penalties(true_vars, penalty_maps)
+        penalty_summary = "; ".join(
+            f"{cat}:{label}" if label else cat for _, cat, label in sorted(acts, key=lambda t: (t[1], t[0]))
+        )
 
         models_summary.append({
             "idx": str(idx),
@@ -347,6 +350,7 @@ def main():
             "n_EffortFloor": str(counts.get("EffortFloor", 0)),
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
             "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
+            "penalties": penalty_summary,
         })
 
         if best_score is None or score < best_score:
@@ -362,7 +366,7 @@ def main():
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
             "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
             "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor",
-            "n_DebugRelax","n_DebugUnassigned"  # <-- NEW columns
+            "n_DebugRelax","n_DebugUnassigned","penalties"  # <-- NEW columns
         ])
         w.writeheader()
         w.writerows(models_summary)

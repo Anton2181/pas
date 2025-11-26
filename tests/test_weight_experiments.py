@@ -59,13 +59,11 @@ def test_weight_ladder_overrides_weights() -> None:
 
 
 def test_weight_ladder_anchors_to_first_weight_when_top_missing() -> None:
-    base = encoder.DEFAULT_CONFIG["WEIGHTS"]["W5"]
-
     cfg = encoder.build_config({"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5", "W3"]}})
     weights = cfg["WEIGHTS"]
 
-    assert weights["W5"] == base
-    assert weights["W3"] == max(1, base // 100)
+    assert weights["W5"] == 100
+    assert weights["W3"] == 1
 
 
 def test_weight_ladder_requires_ratio_above_one() -> None:
