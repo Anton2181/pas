@@ -2146,16 +2146,22 @@ def _encode(args):
 
     top_any_by_person: Dict[str, str] = {}
     top_miss_by_person: Dict[str, str] = {}
+    second_any_by_person: Dict[str, str] = {}
     for p in people:
         x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
-        if not x_top:
-            continue
-        TopAny = make_or(pb, x_top)
-        z_miss = pb.new_var()
-        pb.add_eq([(1, z_miss), (1, TopAny)], 1)
-        top_any_by_person[p] = TopAny
-        top_miss_by_person[p] = z_miss
-        priority_required_vars[z_miss] = f"priority_required::person={p}"
+        if x_top:
+            TopAny = make_or(pb, x_top)
+            z_miss = pb.new_var()
+            pb.add_eq([(1, z_miss), (1, TopAny)], 1)
+            top_any_by_person[p] = TopAny
+            top_miss_by_person[p] = z_miss
+            priority_required_vars[z_miss] = f"priority_required::tier=TOP::person={p}"
+        else:
+            x_second = [xv(r.cid, p) for r in comps if r.is_second and p in cand.get(r.cid, [])]
+            if not x_second:
+                continue
+            SecondAny = make_or(pb, x_second)
+            second_any_by_person[p] = SecondAny
 
     if PRIORITY_COVERAGE_MODE == "global":
         # TOP (independent)
@@ -2165,21 +2171,15 @@ def _encode(args):
             penalties.append((top_weight, z))
             priority_coverage_vars_top[z] = f"priority_coverage_TOP::GLOBAL::person={p}"
 
-        # SECOND (gated by NOT already TOP: penalty only if neither TOP nor SECOND)
-        for p in people:
-            x_second = [xv(r.cid, p) for r in comps if r.is_second and p in cand.get(r.cid, [])]
-            if not x_second:
-                continue  # not eligible for second; don't penalize
-            SecondAny = make_or(pb, x_second)
-
-            # Build TopAny (if eligible for top); if no top-eligibility, TopAny is None
-            TopAny = top_any_by_person.get(p)
-
-            CoveredEither = make_or(pb, [SecondAny, TopAny])  # treat TOP as satisfying SECOND coverage
-            z2 = pb.new_var()  # 1 - (SecondAny OR TopAny)
-            pb.add_eq([(1, z2), (1, CoveredEither)], 1)
-            penalties.append((T2C, z2))
-            priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::GLOBAL::person={p}"
+        # SECOND (only when no TOP eligibility at all)
+        second_weight = W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T2C
+        for p in sorted(second_any_by_person):
+            SecondAny = second_any_by_person[p]
+            z2 = pb.new_var()
+            pb.add_eq([(1, z2), (1, SecondAny)], 1)
+            penalties.append((second_weight, z2))
+            priority_coverage_vars_second[z2] = f"priority_coverage_SECOND::GLOBAL::person={p}"
+            priority_required_vars[z2] = f"priority_required::tier=SECOND::person={p}"
 
     else:  # family mode
         fam_tokens2: Set[str] = set()
@@ -2195,34 +2195,24 @@ def _encode(args):
                 x_top_pf = [xv(r.cid, p)
                             for r in comps
                             if r.is_top and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
-                if not x_top_pf:
-                    continue
-                TopAny_pf = make_or(pb, x_top_pf)
-                z = pb.new_var()
-                pb.add_eq([(1, z), (1, TopAny_pf)], 1)
-                penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
-                priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
-
-        # SECOND (gated by NOT already TOP in same family: penalty only if neither TOP nor SECOND in that family)
-        for p in people:
-            for fam in sorted(fam_tokens2):
-                x_second_pf = [xv(r.cid, p)
-                               for r in comps
-                               if r.is_second and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
-                if not x_second_pf:
-                    continue  # not eligible for second in this family
-                SecondAny_pf = make_or(pb, x_second_pf)
-
-                x_top_pf = [xv(r.cid, p)
-                            for r in comps
-                            if r.is_top and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
-                TopAny_pf = make_or(pb, x_top_pf) if x_top_pf else None
-
-                CoveredEither_pf = make_or(pb, [SecondAny_pf, TopAny_pf])
-                z2 = pb.new_var()
-                pb.add_eq([(1, z2), (1, CoveredEither_pf)], 1)
-                penalties.append((T2C, z2))
-                priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::FAMILY::person={p}::family={fam}"
+                if x_top_pf:
+                    TopAny_pf = make_or(pb, x_top_pf)
+                    z = pb.new_var()
+                    pb.add_eq([(1, z), (1, TopAny_pf)], 1)
+                    penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
+                    priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
+                else:
+                    x_second_pf = [xv(r.cid, p)
+                                   for r in comps
+                                   if r.is_second and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
+                    if not x_second_pf:
+                        continue  # not eligible for second in this family
+                    SecondAny_pf = make_or(pb, x_second_pf)
+                    z2 = pb.new_var()
+                    pb.add_eq([(1, z2), (1, SecondAny_pf)], 1)
+                    penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T2C, z2))
+                    priority_coverage_vars_second[z2] = f"priority_coverage_SECOND::FAMILY::person={p}::family={fam}"
+                    priority_required_vars[z2] = f"priority_required::tier=SECOND::person={p}::family={fam}"
 
     # Objective and dump
     duplicate_penalties = _find_duplicates(penalties)

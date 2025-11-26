@@ -213,6 +213,52 @@ def test_priority_miss_guard_records_people(tmp_path: Path) -> None:
     assert any("person=Alex" in label for label in required.values())
 
 
+def test_priority_miss_prefers_highest_tier(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Top Task",
+            candidates=["Alex"],
+            priority=True,
+        ),
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Second Task",
+            candidates=["Alex", "Blair"],
+            priority=False,
+        ),
+    ]
+    backend = [
+        backend_row("Alex", top_task="Top Task"),
+        backend_row("Blair", second_task="Second Task"),
+    ]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "WEIGHTS": {"W_PRIORITY_MISS": 123},
+    }
+
+    varmap = _load_varmap(
+        run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="prio_tier")["map"]
+    )
+
+    top_labels = list(varmap.get("priority_coverage_vars_top", {}).values())
+    second_labels = list(varmap.get("priority_coverage_vars_second", {}).values())
+    required_labels = list(varmap.get("priority_required_vars", {}).values())
+
+    assert any("person=Alex" in label for label in top_labels)
+    assert not any("person=Alex" in label for label in second_labels)
+    assert any("person=Blair" in label for label in second_labels)
+    # The guard map should record both tiers separately
+    assert any("tier=TOP" in label for label in required_labels)
+    assert any("tier=SECOND" in label for label in required_labels)
+
+
 def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex", "Blair"], sibling_key="Fam"),

@@ -44,7 +44,7 @@ This document summarizes every rule enforced by `encode_sat_from_components.py`,
 
 *Is there a rule that guarantees every person who can take a priority task actually gets one?*
 
-Not as a hard constraint, but the coverage selectors make it costly to skip them. `T1C`/`T2C` reward spreading top/second-priority tasks across people or families. If you also set `W_PRIORITY_MISS`, that weight replaces `T1C` for the top tier so each eligible person incurs **one** strong penalty when they receive zero top tasks. The guard remains a soft penalty rather than a ban, so the solver can still leave someone without a top slot when no feasible assignment exists—but without double-counting the miss. Inspect `priority_required_vars` plus the coverage maps in `varmap.json` to see which selectors fired.
+Not as a hard constraint, but the coverage selectors make it costly to skip them. `T1C`/`T2C` reward spreading top/second-priority tasks across people or families. If you also set `W_PRIORITY_MISS`, that weight replaces `T1C` for the top tier **and** upgrades `T2C` for people who have no top eligibility, so each eligible person incurs **one** strong penalty when they receive zero tasks at their highest available priority. The guard remains a soft penalty rather than a ban, so the solver can still leave someone without a priority slot when no feasible assignment exists—but without double-counting the miss. Inspect `priority_required_vars` plus the coverage maps in `varmap.json` to see which selectors fired.
 
 ## Improving and verifying the rules
 
