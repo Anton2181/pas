@@ -119,6 +119,44 @@ def test_auto_soften_marks_scarce_families(tmp_path: Path) -> None:
     assert "Fam" in varmap["auto_soften_families"]
 
 
+def test_manual_components_skip_debug_drop_vars(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Manual Tue",
+            candidates=["Alex"],
+            assigned=True,
+            assigned_to="Alex",
+        ),
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Manual Wed",
+            candidates=["Blair"],
+            assigned=True,
+            assigned_to="Blair",
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual")
+    varmap = _load_varmap(paths["map"])
+
+    # With DEBUG_ALLOW_UNASSIGNED, manual components still use strict exactly-one
+    # constraints and should not get drop variables.
+    assert varmap["component_drop_vars"] == {}
+
+
 def test_repeat_penalty_skips_manual_only(tmp_path: Path) -> None:
     comps = [
         component_row(

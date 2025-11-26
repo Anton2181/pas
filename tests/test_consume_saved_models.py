@@ -114,10 +114,13 @@ def test_manual_assignments_not_counted_as_unassigned(tmp_path: Path) -> None:
         tmp_path, components=comps, backend=backend, overrides=overrides, prefix="consume_manual_dbg"
     )
     varmap = json.loads(paths["map"].read_text(encoding="utf-8"))
-    drop_var = next(iter(varmap.get("component_drop_vars", {}).values()))
+    # Manual components do not emit debug drop variables when DEBUG_ALLOW_UNASSIGNED is enabled.
+    assert varmap.get("component_drop_vars", {}) == {}
 
+    # Use the lone assignment variable to drive consumer output without any drop indicators.
+    assignment_var = next(iter(varmap["x_to_label"].keys()))
     models_txt = tmp_path / "models.txt"
-    models_txt.write_text(f"v {drop_var}\n", encoding="utf-8")
+    models_txt.write_text(f"v {assignment_var}\n", encoding="utf-8")
 
     penalties_out = tmp_path / "penalties.csv"
     models_out = tmp_path / "models_summary.csv"

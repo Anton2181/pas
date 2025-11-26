@@ -1242,7 +1242,8 @@ def _encode(args):
     component_drop_vars: Dict[str, str] = {}
     for r in comps:
         X = [xv(r.cid, p) for p in cand[r.cid]]
-        if DEBUG_ALLOW_UNASSIGNED:
+        manual_orig = bool(original_manual.get(r.cid, False))
+        if DEBUG_ALLOW_UNASSIGNED and (not manual_orig):
             drop_var = pb.new_var()
             component_drop_vars[r.cid] = drop_var
             x_to_label[drop_var] = f"drop::{r.cid}"
