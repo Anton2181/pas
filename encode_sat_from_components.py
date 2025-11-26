@@ -37,6 +37,8 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple, Iterable
 from collections import defaultdict, deque
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 # =============== CONFIG (flags + weights together) ====================
 DEFAULT_CONFIG = {
     # Debug / relax selectors
@@ -92,93 +94,93 @@ DEFAULT_CONFIG = {
         # ordering with ``RATIO`` (each rung is ``RATIO``× the next). Inline
         # notes explain the intent, when the weight triggers, and a concrete
         # example of a violation that would pay the cost.
-        #   * W1_STREAK – discourages back-to-back weeks in the same priority family;
-        #     activates when a priority person repeats a family across adjacent
-        #     weeks; e.g., Alice serves Family X in weeks 10 and 11.
-        #   * W1_REPEAT – penalizes exceeding the per-family priority repeat cap;
-        #     triggers once a priority person crosses their allowed count; e.g., a
-        #     second assignment to Family X when the limit is 1.
-        #   * W1_COOLDOWN – counts steps inside the priority cooldown ladder;
-        #     activates on short gaps after a priority service; e.g., serving the
-        #     same family again just one week later.
+        #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
+        #     is intentionally left unassigned under debug relax mode; e.g., marking
+        #     a hard-to-place component as dropped.
+        #   * W4 – soft cost for using the “Both” expansion to assign a manual pair;
+        #     activates when a person is auto-selected for a “Both” link; e.g.,
+        #     filling both halves of a manual repeat in one step.
+        #   * W4_DPR – same-day deprioritized pair penalty; activates when a person
+        #     takes two tasks forming a deprioritized pair on the same day; e.g.,
+        #     working two incompatible tasks on Saturday.
+        #   * W_EFFORT_FLOOR – enforces/encourages ≥target effort for eligible
+        #     people; activates when an eligible person could reach the target but
+        #     does not; e.g., someone capable of 8 effort only gets 6.
+        #   * W_PRIORITY_MISS – ensures eligible priority specialists get at least
+        #     one priority task; activates when a top-eligible person receives zero;
+        #     e.g., an expert never assigned any priority work that week.
+        #   * W_TWO_DAY_SOFT – general named-day softening; activates when two named
+        #     days are both auto-assigned under soft mode; e.g., taking Monday and
+        #     Wednesday when not fully manual.
         #   * W1_COOLDOWN_INTRA – sibling-proximity guard for priority families;
         #     triggers when a priority person appears twice in the same family
         #     during sibling-linked weeks; e.g., covering both tokens of a split
         #     family in the same window.
-        #   * W2_STREAK – discourages back-to-back weeks for non-priority families;
-        #     activates on consecutive non-priority assignments; e.g., Bob handles
-        #     Family Y in weeks 12 and 13.
-        #   * W2_REPEAT – penalizes exceeding the non-priority repeat cap;
-        #     triggers when a non-priority person goes past their family limit;
-        #     e.g., a third assignment where only two were allowed.
-        #   * W2_COOLDOWN – counts steps in the non-priority cooldown ladder;
-        #     activates on short gaps after a non-priority service; e.g., returning
-        #     to a family after a single-week break.
-        #   * W2_COOLDOWN_INTRA – sibling-proximity guard for non-priority families;
-        #     triggers when a non-priority person serves both halves of a sibling
-        #     pair too closely; e.g., covering linked weeks for Family Z.
-        #   * W4 – soft cost for using the “Both” expansion to assign a manual
-        #     pair; activates when a person is auto-selected for a “Both” link;
-        #     e.g., filling both halves of a manual repeat in one step.
-        #   * W4_DPR – same-day deprioritized pair penalty; activates when a person
-        #     takes two tasks forming a deprioritized pair on the same day; e.g.,
-        #     working two incompatible tasks on Saturday.
-        #   * W_PRIORITY_MISS – ensures eligible priority specialists get at least
-        #     one priority task; activates when a top-eligible person receives zero;
-        #     e.g., an expert never assigned any priority work that week.
-        #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
-        #     short-staffed; e.g., only one manual assignment on a day that expects
-        #     two.
-        #   * W_SUNDAY_TWO_DAY – softens named-day bans involving Sunday; activates
-        #     when a person takes two named days including Sunday under softened
-        #     mode; e.g., Tuesday+Sunday combination.
-        #   * W_TWO_DAY_SOFT – general named-day softening; activates when two named
-        #     days are both auto-assigned under soft mode; e.g., taking Monday and
-        #     Wednesday when not fully manual.
+        #   * W2_COOLDOWN_INTRA – sibling-proximity guard for non-priority
+        #     families; triggers when a non-priority person serves both halves of a
+        #     sibling pair too closely; e.g., covering linked weeks for Family Z.
         #   * T1C – pushes broad coverage of top-priority families; activates when
         #     top-priority capacity goes unused; e.g., skipping a top slot to keep
         #     someone idle.
         #   * T2C – secondary priority coverage; activates when secondary priority
         #     families are left empty after top coverage; e.g., leaving a second-tier
         #     slot open.
-        #   * W_EFFORT_FLOOR – enforces/encourages ≥target effort for eligible
-        #     people; activates when an eligible person could reach the target but
-        #     does not; e.g., someone capable of 8 effort only gets 6.
-        #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
-        #     is intentionally left unassigned under debug relax mode; e.g., marking
-        #     a hard-to-place component as dropped.
+        #   * W1_REPEAT – penalizes exceeding the per-family priority repeat cap;
+        #     triggers once a priority person crosses their allowed count; e.g., a
+        #     second assignment to Family X when the limit is 1.
+        #   * W1_STREAK – discourages back-to-back weeks in the same priority
+        #     family; activates when a priority person repeats across adjacent weeks;
+        #     e.g., Alice serves Family X in weeks 10 and 11.
+        #   * W1_COOLDOWN – counts steps inside the priority cooldown ladder;
+        #     activates on short gaps after a priority service; e.g., serving the
+        #     same family again just one week later.
+        #   * W2_REPEAT – penalizes exceeding the non-priority repeat cap; triggers
+        #     when a non-priority person goes past their family limit; e.g., a third
+        #     assignment where only two were allowed.
+        #   * W2_STREAK – discourages back-to-back weeks for non-priority families;
+        #     activates on consecutive non-priority assignments; e.g., Bob handles
+        #     Family Y in weeks 12 and 13.
+        #   * W2_COOLDOWN – counts steps in the non-priority cooldown ladder;
+        #     activates on short gaps after a non-priority service; e.g., returning
+        #     to a family after a single-week break.
+        #   * W_SUNDAY_TWO_DAY – softens named-day bans involving Sunday; activates
+        #     when a person takes two named days including Sunday under softened
+        #     mode; e.g., Tuesday+Sunday combination.
+        #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
+        #     short-staffed; e.g., only one manual assignment on a day that expects
+        #     two.
+        #   * W5 – preferred-pair miss; activates when a feasible preferred pair is
+        #     not scheduled; e.g., two people who like to partner are assigned
+        #     separately.
         #   * W6_UNDER – fairness ladder for under-loaded people; activates when a
         #     person receives less than peers; e.g., far fewer assignments than the
         #     median.
         #   * W6_OVER – fairness ladder for over-loaded people; activates when a
         #     person receives more than peers; e.g., significantly above-average
         #     assignment counts.
-        #   * W5 – preferred-pair miss; activates when a feasible preferred pair is
-        #     not scheduled; e.g., two people who like to partner are assigned
-        #     separately.
         "ENABLED": False,
         "ORDER": [
-            "W1_STREAK",
-            "W1_REPEAT",
-            "W1_COOLDOWN",
-            "W1_COOLDOWN_INTRA",
-            "W2_STREAK",
-            "W2_REPEAT",
-            "W2_COOLDOWN",
-            "W2_COOLDOWN_INTRA",
+            "W_DEBUG_UNASSIGNED",
             "W4",
             "W4_DPR",
+            "W_EFFORT_FLOOR",
             "W_PRIORITY_MISS",
-            "W3",
-            "W_SUNDAY_TWO_DAY",
             "W_TWO_DAY_SOFT",
+            "W1_COOLDOWN_INTRA",
+            "W2_COOLDOWN_INTRA",
             "T1C",
             "T2C",
-            "W_EFFORT_FLOOR",
-            "W_DEBUG_UNASSIGNED",
+            "W1_REPEAT",
+            "W1_STREAK",
+            "W1_COOLDOWN",
+            "W2_REPEAT",
+            "W2_STREAK",
+            "W2_COOLDOWN",
+            "W_SUNDAY_TWO_DAY",
+            "W3",
+            "W5",
             "W6_UNDER",
             "W6_OVER",
-            "W5",
         ],
         "RATIO": 100,
         "TOP": None,  # if omitted, anchor to ORDER[0] value from WEIGHTS
@@ -330,6 +332,23 @@ def to_int(s: str, default: int) -> int:
         return int(trim(s) or str(default))
     except Exception:
         return default
+
+
+def resolve_data_path(path: Path) -> Path:
+    """Locate a data file relative to CWD or the script directory.
+
+    This preserves the prior right-click/run UX in IDEs by falling back to the
+    repository directory if the current working directory does not contain the
+    default CSVs.
+    """
+
+    if path.exists():
+        return path
+    if not path.is_absolute():
+        alt = SCRIPT_DIR / path
+        if alt.exists():
+            return alt
+    return path
 
 
 def to_float(s: str, default: float) -> float:
@@ -529,10 +548,12 @@ class FamilyRegistry:
         return alias or fam
 
 def read_csv_matrix(path: Path) -> List[List[str]]:
-    txt = path.read_text(encoding="utf-8-sig", errors="replace")
+    actual = resolve_data_path(path)
+    txt = actual.read_text(encoding="utf-8-sig", errors="replace")
     return [list(row) for row in csv.reader(io.StringIO(txt))]
 
 def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
+    path = resolve_data_path(path)
     rows: List[CompRow] = []
     people: Set[str] = set()
     used_siblingkey = False
@@ -954,7 +975,8 @@ def _encode(args):
         # Preserve prior logic that 'priority' drives cooldown/repeat as TOP-only:
         r.priority = bool(r.is_top)
 
-    family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.json"))))
+    fam_reg_path = resolve_data_path(Path(getattr(args, "family_registry", Path("family_registry.json"))))
+    family_registry = FamilyRegistry(fam_reg_path)
     family_registry.load()
 
     family_components: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
@@ -2188,7 +2210,8 @@ def main() -> None:
     args = parse_args()
     overrides: dict | None = None
     if args.config:
-        overrides = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        cfg_path = resolve_data_path(Path(args.config))
+        overrides = json.loads(cfg_path.read_text(encoding="utf-8"))
     encode_with_args(args, overrides=overrides)
 
 

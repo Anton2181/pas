@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import encode_sat_from_components as encoder
 from tests.utils import backend_row, component_row, run_encoder_for_rows, write_components
 
 
@@ -23,6 +24,19 @@ def _script_path(name: str) -> str:
 
 def _load_varmap(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_resolves_default_paths_from_script_dir(tmp_path: Path, monkeypatch) -> None:
+    script_dir = tmp_path / "repo"
+    script_dir.mkdir()
+    backend = script_dir / "backend.csv"
+    backend.write_text("col1\nval\n", encoding="utf-8")
+
+    monkeypatch.setattr(encoder, "SCRIPT_DIR", script_dir)
+    monkeypatch.chdir(tmp_path)
+
+    resolved = encoder.resolve_data_path(Path("backend.csv"))
+    assert resolved == backend
 
 
 def test_two_day_rule_modes(tmp_path: Path) -> None:
