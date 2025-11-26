@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import encode_sat_from_components as encoder
 from run_weight_experiments import (
     PENALTY_FIELDS,
@@ -34,6 +36,46 @@ def test_load_plans_and_scaling(tmp_path: Path) -> None:
     scaled = plans[1].to_overrides(base_cfg)
     assert scaled["WEIGHTS"]["W1_COOLDOWN"] == base_cfg["WEIGHTS"]["W1_COOLDOWN"] * 2
     assert scaled["WEIGHTS"]["W6_UNDER"] == 9
+
+
+def test_weight_ladder_overrides_weights() -> None:
+    overrides = {
+        "WEIGHT_LADDER": {
+            "ENABLED": True,
+            "ORDER": ["W5", "W4", "W3"],
+            "RATIO": 100,
+            "TOP": 1_000_000,
+        }
+    }
+
+    cfg = encoder.build_config(overrides)
+    weights = cfg["WEIGHTS"]
+
+    assert weights["W5"] == 1_000_000
+    assert weights["W4"] == 10_000
+    assert weights["W3"] == 100
+    # Default ladder entries get appended so core weights still receive values
+    assert weights["W1_COOLDOWN"] > 0
+    # Non-weight helper config is preserved
+    assert weights["FAIRNESS_AVAILABILITY"]["ENABLED"] is True
+
+
+def test_weight_ladder_anchors_to_first_weight_when_top_missing() -> None:
+    cfg = encoder.build_config({"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5", "W3"]}})
+    weights = cfg["WEIGHTS"]
+
+    expected_top = cfg["WEIGHT_LADDER"]["RATIO"] ** (
+        len(cfg["WEIGHT_LADDER"]["ORDER"]) - 1
+    )
+    assert weights["W5"] == expected_top
+    assert weights["W3"] == max(1, expected_top // cfg["WEIGHT_LADDER"]["RATIO"])
+
+
+def test_weight_ladder_requires_ratio_above_one() -> None:
+    overrides = {"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5"], "RATIO": 1}}
+
+    with pytest.raises(ValueError):
+        encoder.build_config(overrides)
 
 
 def test_best_model_row_picks_lowest_objective(tmp_path: Path) -> None:

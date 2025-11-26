@@ -138,6 +138,7 @@ def read_varmap(path: Path):
     vprev_nonconsec    = vm.get('vprev_nonconsec_vars', {})  # encoder now leaves this empty
     preferred_miss     = vm.get('preferred_miss_vars', {})
     priority_coverage  = vm.get('priority_coverage_vars', {})
+    effort_floor_vars  = vm.get('effort_floor_vars', {}) or {}
 
     # Geometric ladders + over-limit maps (present in the optimized encoder)
     cooldown_pri_ladder = vm.get('cooldown_pri_ladder_vars', {})
@@ -172,6 +173,7 @@ def read_varmap(path: Path):
         'OneTaskDay': vm.get('q_vars', {}),
         'TwoDaySoft': two_day_soft,
         'DeprioritizedPair': vm.get('deprioritized_pair_vars', {}),  # <-- NEW
+        'EffortFloor': effort_floor_vars,
         'DebugRelax': debug_relax_by_var,
         'DebugUnassigned': component_drop_by_var,
     }
@@ -320,6 +322,9 @@ def main():
         pairs = decode_pairs(true_vars, x_to_label)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
         acts, counts, unknown_true = find_penalties(true_vars, penalty_maps)
+        penalty_summary = "; ".join(
+            f"{cat}:{label}" if label else cat for _, cat, label in sorted(acts, key=lambda t: (t[1], t[0]))
+        )
 
         models_summary.append({
             "idx": str(idx),
@@ -342,8 +347,10 @@ def main():
             "n_OneTaskDay": str(counts.get("OneTaskDay", 0)),
             "n_TwoDaySoft": str(counts.get("TwoDaySoft", 0)),  # <-- NEW
             "n_DeprioritizedPair": str(counts.get("DeprioritizedPair", 0)),  # <-- NEW
+            "n_EffortFloor": str(counts.get("EffortFloor", 0)),
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
             "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
+            "penalties": penalty_summary,
         })
 
         if best_score is None or score < best_score:
@@ -358,8 +365,8 @@ def main():
             "n_CooldownPRI","n_CooldownNON","n_CooldownStreak","n_CooldownNonConsec",
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
             "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
-            "n_TwoDaySoft","n_DeprioritizedPair",
-            "n_DebugRelax","n_DebugUnassigned"  # <-- NEW columns
+            "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor",
+            "n_DebugRelax","n_DebugUnassigned","penalties"  # <-- NEW columns
         ])
         w.writeheader()
         w.writerows(models_summary)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import encode_sat_from_components as encoder
 from tests.utils import backend_row, component_row, run_encoder_for_rows, write_components
 
 
@@ -23,6 +24,19 @@ def _script_path(name: str) -> str:
 
 def _load_varmap(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_resolves_default_paths_from_script_dir(tmp_path: Path, monkeypatch) -> None:
+    script_dir = tmp_path / "repo"
+    script_dir.mkdir()
+    backend = script_dir / "backend.csv"
+    backend.write_text("col1\nval\n", encoding="utf-8")
+
+    monkeypatch.setattr(encoder, "SCRIPT_DIR", script_dir)
+    monkeypatch.chdir(tmp_path)
+
+    resolved = encoder.resolve_data_path(Path("backend.csv"))
+    assert resolved == backend
 
 
 def test_two_day_rule_modes(tmp_path: Path) -> None:
@@ -199,6 +213,52 @@ def test_priority_miss_guard_records_people(tmp_path: Path) -> None:
     assert any("person=Alex" in label for label in required.values())
 
 
+def test_priority_miss_prefers_highest_tier(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Top Task",
+            candidates=["Alex"],
+            priority=True,
+        ),
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Second Task",
+            candidates=["Alex", "Blair"],
+            priority=False,
+        ),
+    ]
+    backend = [
+        backend_row("Alex", top_task="Top Task"),
+        backend_row("Blair", second_task="Second Task"),
+    ]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "WEIGHTS": {"W_PRIORITY_MISS": 123},
+    }
+
+    varmap = _load_varmap(
+        run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="prio_tier")["map"]
+    )
+
+    top_labels = list(varmap.get("priority_coverage_vars_top", {}).values())
+    second_labels = list(varmap.get("priority_coverage_vars_second", {}).values())
+    required_labels = list(varmap.get("priority_required_vars", {}).values())
+
+    assert any("person=Alex" in label for label in top_labels)
+    assert not any("person=Alex" in label for label in second_labels)
+    assert any("person=Blair" in label for label in second_labels)
+    # The guard map should record both tiers separately
+    assert any("tier=TOP" in label for label in required_labels)
+    assert any("tier=SECOND" in label for label in required_labels)
+
+
 def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex", "Blair"], sibling_key="Fam"),
@@ -250,6 +310,229 @@ def test_fairness_availability_scaling(tmp_path: Path) -> None:
     assert targets["Alex"] > targets["Blair"]
     fairness_info = varmap["fairness_availability"]
     assert fairness_info["Alex"]["raw_slots"] > fairness_info["Blair"]["raw_slots"]
+
+
+def test_effort_floor_targets_only_eligible(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
+        for i in range(1, 9)
+    ] + [
+        component_row(cid=f"CY{i}", week="Week 2", day="Wednesday", task_name=f"Casey Task {i}", candidates=["Casey"], effort=2.0)
+        for i in range(1, 4)
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair"), backend_row("Casey")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "EFFORT_FLOOR_TARGET": 8,
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor")
+    varmap = _load_varmap(paths["map"])
+
+    eligible = varmap.get("effort_floor_eligible", [])
+    assert set(eligible) == {"Alex", "Blair"}
+
+    labels = list(varmap.get("effort_floor_vars", {}).values())
+    assert any("person=Alex" in lbl for lbl in labels)
+    assert any("person=Blair" in lbl for lbl in labels)
+    assert not any("Casey" in lbl for lbl in labels)
+
+
+def test_effort_floor_hard_ignores_debug_relax(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
+        for i in range(1, 9)
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_RELAX": True,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_hard")
+    varmap = _load_varmap(paths["map"])
+
+    selectors = varmap.get("selectors", {})
+    assert selectors  # baseline debug selectors still populate
+    assert not any("effort_floor_hard::Alex" in label for label in selectors)
+
+
+def test_effort_floor_hard_skips_when_infeasible(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task 1", candidates=["Alex", "Blair", "Casey"]),
+        component_row(cid="C2", week="Week 1", day="Wednesday", task_name="Task 2", candidates=["Alex", "Blair", "Casey"]),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair"), backend_row("Casey")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_infeasible")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_feasible") is False
+    assert varmap.get("effort_floor_hard_applied") is False
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_global_effort"
+
+
+def test_effort_floor_hard_skips_when_slots_too_few(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Big Task",
+            effort=5,
+            candidates=["Alex", "Blair", "Casey"],
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair"), backend_row("Casey")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_slot")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_feasible") is False
+    assert varmap.get("effort_floor_hard_applied") is False
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_slot_capacity"
+
+
+def test_effort_floor_excludes_people_who_cannot_clear_family_blocks(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="AX1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Fam A slot 1",
+            sibling_key="FAM_A",
+            candidates=["Alex"],
+            effort=2.0,
+        ),
+        component_row(
+            cid="AX2",
+            week="Week 1",
+            day="Thursday",
+            task_name="Fam A slot 2",
+            sibling_key="FAM_A",
+            candidates=["Alex"],
+            effort=2.0,
+        ),
+        component_row(
+            cid="BX1",
+            week="Week 1",
+            day="Friday",
+            task_name="Blair slot",
+            candidates=["Blair"],
+            effort=4.0,
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 3,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_family")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_attainable", {}).get("Alex") == 2
+    assert varmap.get("effort_floor_eligible", []) == ["Blair"]
+    notes = varmap.get("effort_floor_notes", {})
+    assert notes.get("ineligible_by_attainable", {}).get("Alex") == 2
+    assert varmap.get("effort_floor_feasible") is True
+    assert varmap.get("effort_floor_hard_applied") is True
+
+
+def test_effort_floor_skips_when_two_day_probe_fails(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid=f"AX{i}", week="Week 1", day=day, task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=1.0)
+        for i, day in enumerate(["Tuesday", "Wednesday", "Thursday", "Friday"], start=1)
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 2,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_probe")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_feasible") is False
+    assert varmap.get("effort_floor_hard_applied") is False
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "no_eligible_people"
+
+
+def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="AUTO1", week="Week 1", day="Tuesday", task_name="Auto Solo", candidates=["Alex"], effort=1.0),
+        component_row(cid="AUTO2", week="Week 1", day="Wednesday", task_name="Auto Pair", candidates=["Blair"], effort=2.0),
+    ]
+    comps[1]["Task Count"] = "2"
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_auto")
+    varmap = _load_varmap(paths["map"])
+
+    # Alex cannot satisfy the AUTO-day ≥2 rule, so he should be excluded from the floor.
+    assert varmap.get("effort_floor_eligible", []) == ["Blair"]
+    blocked = varmap.get("effort_floor_notes", {}).get("auto_day_blocked", {})
+    assert "Alex" in blocked
+    assert blocked["Alex"].get("W1:Tuesday", {}).get("total_task_count") == 1
+    assert varmap.get("effort_floor_feasible") is True
+    assert varmap.get("effort_floor_hard_applied") is True
+
+
+def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="W1P", week="Week 1", day="Tuesday", task_name="Week1 Priority", candidates=["Alex", "Blair"], priority=True
+        ),
+        component_row(
+            cid="W2P", week="Week 2", day="Tuesday", task_name="Week2 Priority", candidates=["Alex", "Blair"], priority=True
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_RELAX": True,
+        "PRIORITY_COOLDOWN_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="cooldown_hard")
+    selectors = _load_varmap(paths["map"]).get("selectors", {})
+
+    assert selectors  # debug relax still captures other constraints
+    assert not any("cooldown_prev_hard_PRI" in label for label in selectors)
 
 
 def test_pipeline_produces_assignments(tmp_path: Path) -> None:

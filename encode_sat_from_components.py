@@ -37,12 +37,18 @@ from pathlib import Path
 from typing import Dict, List, Set, Tuple, Iterable
 from collections import defaultdict, deque
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 # =============== CONFIG (flags + weights together) ====================
 DEFAULT_CONFIG = {
     # Debug / relax selectors
-    "DEBUG_RELAX": False,
+    "DEBUG_RELAX": True,
     "DEBUG_ALLOW_UNASSIGNED": False,
     "W_HARD": 1_000_000_000_000_000_000_000,  # ≥ W1
+
+    # Minimum-effort encouragement
+    "EFFORT_FLOOR_TARGET": 6,
+    "EFFORT_FLOOR_HARD": True,
 
     # Cooldown options (prev-week; separate from repeat limits below)
     "PRIORITY_COOLDOWN_HARD": False,
@@ -72,7 +78,7 @@ DEFAULT_CONFIG = {
     # Auto-softening: detect families with very few eligible people and skip
     # building the harshest cooldown/repeat penalties for them.
     "AUTO_SOFTEN": {
-        "ENABLED": True,
+        "ENABLED": False,
         "MIN_UNIQUE_CANDIDATES": 3,
         "MAX_SLOTS_PER_PERSON": 1.5,
         "RELAX_COOLDOWN": True,
@@ -82,57 +88,120 @@ DEFAULT_CONFIG = {
     "FAIR_MEAN_MULTIPLIER": 1.0,
     "FAIR_OVER_START_DELTA": 0,
 
+    # Optional weight ladder (ordered list where each entry is RATIO× the next)
+    "WEIGHT_LADDER": {
+        # Strongest → weakest ladder. Enable to derive numeric weights from this
+        # ordering with ``RATIO`` (each rung is ``RATIO``× the next). Inline
+        # notes explain the intent, when the weight triggers, and a concrete
+        # example of a violation that would pay the cost.
+        #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
+        #     is intentionally left unassigned under debug relax mode; e.g., marking
+        #     a hard-to-place component as dropped.
+        #   * W4 – soft cost for using the “Both” expansion to assign a manual pair;
+        #     activates when a person is auto-selected for a “Both” link; e.g.,
+        #     filling both halves of a manual repeat in one step.
+        #   * W4_DPR – same-day deprioritized pair penalty; activates when a person
+        #     takes two tasks forming a deprioritized pair on the same day; e.g.,
+        #     working two incompatible tasks on Saturday.
+        #   * W_EFFORT_FLOOR – enforces/encourages ≥target effort for eligible
+        #     people; activates when an eligible person could reach the target but
+        #     does not; e.g., someone capable of 8 effort only gets 6.
+        #   * W_PRIORITY_MISS – ensures eligible priority specialists get at least
+        #     one priority task; activates when a top-eligible person receives zero;
+        #     e.g., an expert never assigned any priority work that week.
+        #   * W_TWO_DAY_SOFT – general named-day softening; activates when two named
+        #     days are both auto-assigned under soft mode; e.g., taking Monday and
+        #     Wednesday when not fully manual.
+        #   * W1_COOLDOWN_INTRA – sibling-proximity guard for priority families;
+        #     triggers when a priority person appears twice in the same family
+        #     during sibling-linked weeks; e.g., covering both tokens of a split
+        #     family in the same window.
+        #   * W2_COOLDOWN_INTRA – sibling-proximity guard for non-priority
+        #     families; triggers when a non-priority person serves both halves of a
+        #     sibling pair too closely; e.g., covering linked weeks for Family Z.
+        #   * T1C – pushes broad coverage of top-priority families; activates when
+        #     top-priority capacity goes unused; e.g., skipping a top slot to keep
+        #     someone idle.
+        #   * T2C – secondary priority coverage; activates when secondary priority
+        #     families are left empty after top coverage; e.g., leaving a second-tier
+        #     slot open.
+        #   * W1_REPEAT – penalizes exceeding the per-family priority repeat cap;
+        #     triggers once a priority person crosses their allowed count; e.g., a
+        #     second assignment to Family X when the limit is 1.
+        #   * W1_STREAK – discourages back-to-back weeks in the same priority
+        #     family; activates when a priority person repeats across adjacent weeks;
+        #     e.g., Alice serves Family X in weeks 10 and 11.
+        #   * W1_COOLDOWN – counts steps inside the priority cooldown ladder;
+        #     activates on short gaps after a priority service; e.g., serving the
+        #     same family again just one week later.
+        #   * W2_REPEAT – penalizes exceeding the non-priority repeat cap; triggers
+        #     when a non-priority person goes past their family limit; e.g., a third
+        #     assignment where only two were allowed.
+        #   * W2_STREAK – discourages back-to-back weeks for non-priority families;
+        #     activates on consecutive non-priority assignments; e.g., Bob handles
+        #     Family Y in weeks 12 and 13.
+        #   * W2_COOLDOWN – counts steps in the non-priority cooldown ladder;
+        #     activates on short gaps after a non-priority service; e.g., returning
+        #     to a family after a single-week break.
+        #   * W_SUNDAY_TWO_DAY – softens named-day bans involving Sunday; activates
+        #     when a person takes two named days including Sunday under softened
+        #     mode; e.g., Tuesday+Sunday combination.
+        #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
+        #     short-staffed; e.g., only one manual assignment on a day that expects
+        #     two.
+        #   * W5 – preferred-pair miss; activates when a feasible preferred pair is
+        #     not scheduled; e.g., two people who like to partner are assigned
+        #     separately.
+        #   * W6_UNDER – fairness ladder for under-loaded people; activates when a
+        #     person receives less than peers; e.g., far fewer assignments than the
+        #     median.
+        #   * W6_OVER – fairness ladder for over-loaded people; activates when a
+        #     person receives more than peers; e.g., significantly above-average
+        #     assignment counts.
+        "ENABLED": True,
+        "ORDER": [
+            "W_DEBUG_UNASSIGNED",
+            "W4",
+            "W4_DPR",
+            "W_EFFORT_FLOOR",
+            "W_PRIORITY_MISS",
+            "W_TWO_DAY_SOFT",
+            "W1_COOLDOWN_INTRA",
+            "W2_COOLDOWN_INTRA",
+            "T1C",
+            "T2C",
+            "W1_REPEAT",
+            "W1_STREAK",
+            "W1_COOLDOWN",
+            "W2_REPEAT",
+            "W2_STREAK",
+            "W2_COOLDOWN",
+            "W_SUNDAY_TWO_DAY",
+            "W3",
+            "W5",
+            "W6_UNDER",
+            "W6_OVER",
+        ],
+        "RATIO": 10,
+        # Optional anchor for the strongest rung. If omitted, it defaults to
+        # ``RATIO ** (len(ORDER) - 1)`` so the weakest rung bottoms out at ~1.
+        "TOP": None,
+    },
+
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
-        # --- PRIORITY (Tier 1) ---
-        "W1_COOLDOWN": 1_000_000_000_000_000,  # PRI cooldown ladder base (per counted violation step)
-        "W1_REPEAT": 5 * 1_000_000_000_000_000,  # PRI repeat-over ladder base (above per-family limit)
-        "W1_STREAK": 25 * 1_000_000_000_000_000,  # PRI cooldown streak (back-to-back weeks in same family)
-        "W_PRIORITY_MISS": 3_000_000_000,  # Heavy penalty when a TOP-eligible person receives zero priority tasks
-
-        "W1_COOLDOWN_INTRA": 10_000_000_000_000_000_000,  # default = W1_COOLDOWN
-        "W2_COOLDOWN_INTRA": 500_000_000_000_000,      # default = W2_COOLDOWN
-
-        # --- NON-PRIORITY (Tier 2) ---
-        "W2_COOLDOWN": 500_000_000_000_000,  # NON-PRI cooldown ladder base
-        "W2_REPEAT": 2_500_000_000_000_000,  # NON-PRI repeat-over ladder base
-        "W2_STREAK": 12_500_000_000_000_000,  # NON-PRI cooldown streak (back-to-back weeks)
-
-        "W4": 10 * 1_000_000_000_000,  # Penalty for using “Both” expansion assignment
-
-        # --- Tier 3: same-day “fill to 2” nudger on manual-only days when ≥2 is expected ---
-        "W3": 250_000,  # Encourage ≥2 tasks for a person/day when a manual-only day would be thin
-
-        # --- Tier 4: “Both” fallback + deprioritized pair (same-day) ---
-        "W4_DPR": 250_000_000_000,  # Soft cost for taking two tasks that form a deprioritized pair on same (week,day)
-
-        # --- Tier 5: preferred-pair miss (per feasible unordered pair count) ---
-        "W5": 250,  # Penalize when a feasible preferred pair is not realized
-
-        # --- Tier 6: across-horizon fairness (convex ladders) ---
-        "W6_OVER": 2,  # Over-load ladder base multiplier
-        "W6_UNDER": 5,  # Under-load ladder base multiplier
-
-        # --- Debug helpers ---
+        # --- Debug helper (other weights are derived from the ladder) ---
         "W_DEBUG_UNASSIGNED": 1_000_000_000_000_000_000,
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
-            "ENABLED": True,
+            "ENABLED": False,
             "REFERENCE": "auto",  # "auto" or "all"
             "MIN_RATIO": 0.35,
             "MAX_RATIO": 1.85,
             "POWER": 0.75,
         },
 
-        # --- Priority coverage pressure ---
-        "T1C": 100_000_000_000_000_000,  # Encourage wide coverage of TOP-priority tasks
-        "T2C": 500_000_000,  # Encourage SECOND-priority, gated by not already TOP
-
-        # --- Two-day rule softening ---
-        "W_SUNDAY_TWO_DAY": 10_000_000_000_000_000,  # Soft cost for Sunday-inclusive pairs when softened
-        "W_TWO_DAY_SOFT": 2_000_000_000,
-        # Soft cost when two named days aren’t BOTH manual (soft modes)
     },
 
     # Banned unordered person pairs
@@ -166,10 +235,123 @@ def deep_update(dst: dict, src: dict) -> dict:
     return dst
 
 
+def _greedy_effort_floor_probe(
+    *,
+    target: int,
+    eligible_people: Iterable[str],
+    comps: List[CompRow],
+    candidates: Dict[str, List[str]],
+    original_manual: Dict[str, bool],
+    blocked: Dict[str, Set[str]] | None = None,
+) -> tuple[bool, dict]:
+    """Attempt to cover the effort floor using a conservative greedy heuristic.
+
+    The probe respects per-week family exclusivity, forbids more than one AUTO
+    named-day per person/week (mirroring the hard two-day constraint), and
+    limits people to one task per named day. If the probe cannot find a
+    covering assignment, we treat the floor as infeasible rather than risk an
+    UNSAT model.
+    """
+
+    remaining = {p: target for p in eligible_people}
+    if not remaining or target <= 0:
+        return True, {"assignments": {}, "covered_effort": {}, "remaining_need": remaining}
+
+    # Track usage to mirror the strongest per-person hard rules.
+    family_week_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
+    day_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
+    auto_week_used: Dict[str, Set[int]] = defaultdict(set)
+    assignments: Dict[str, List[str]] = defaultdict(list)
+
+    comp_meta: List[tuple[int, CompRow]] = []
+    for r in comps:
+        effort_units = max(1, int(math.ceil(getattr(r, "total_effort", max(1, int(r.task_count))))))
+        comp_meta.append((effort_units, r))
+
+    # Highest-effort first to reduce waste; stable tie-breaker on cid for tests.
+    comp_meta.sort(key=lambda t: (-t[0], t[1].cid))
+
+    for effort_units, r in comp_meta:
+        if all(need <= 0 for need in remaining.values()):
+            break
+        if effort_units <= 0:
+            continue
+
+        fams = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
+        fams = tuple(trim(f) for f in fams if trim(f))
+        week = int(getattr(r, "week_num", 0) or 0)
+        day = trim(getattr(r, "day", ""))
+        is_auto = not original_manual.get(r.cid, False)
+
+        # Assign to the person with the highest remaining need that can legally take it.
+        for person in sorted(remaining, key=lambda p: remaining[p], reverse=True):
+            if remaining[person] <= 0:
+                continue
+            if blocked and r.cid in blocked.get(person, set()):
+                continue
+            if person not in candidates.get(r.cid, []):
+                continue
+            if any((week, fam) in family_week_used[person] for fam in fams):
+                continue
+            if day and (week, day) in day_used[person]:
+                continue
+            if is_auto and week in auto_week_used[person]:
+                continue
+
+            # Take the assignment for this person.
+            remaining[person] -= effort_units
+            assignments[person].append(r.cid)
+            family_week_used[person].update((week, fam) for fam in fams)
+            if day:
+                day_used[person].add((week, day))
+            if is_auto:
+                auto_week_used[person].add(week)
+            break
+
+    covered = {p: target - max(need, 0) for p, need in remaining.items()}
+    success = all(need <= 0 for need in remaining.values())
+    return success, {
+        "assignments": assignments,
+        "covered_effort": covered,
+        "remaining_need": remaining,
+    }
+
+
+def _apply_weight_ladder(cfg: dict) -> None:
+    ladder_cfg = cfg.get("WEIGHT_LADDER") or {}
+    order: List[str] = ladder_cfg.get("ORDER") or []
+    if not ladder_cfg.get("ENABLED") or not order:
+        return
+
+    ratio = int(ladder_cfg.get("RATIO", 100))
+    if ratio <= 1:
+        raise ValueError("WEIGHT_LADDER.RATIO must be >1")
+
+    # Ensure every known weight gets a derived value by appending any missing
+    # defaults after a custom ORDER prefix.
+    default_order = [w for w in DEFAULT_CONFIG.get("WEIGHT_LADDER", {}).get("ORDER", []) if w not in order]
+    order = [*order, *default_order]
+    cfg.setdefault("WEIGHT_LADDER", {})["ORDER"] = order
+
+    weights = copy.deepcopy(cfg.get("WEIGHTS", {}))
+    top = ladder_cfg.get("TOP")
+    anchor = int(top) if top is not None else None
+    if anchor is None:
+        anchor = int(ratio ** max(len(order) - 1, 0))
+
+    current = anchor
+    for name in order:
+        weights[name] = current
+        current = max(1, current // ratio)
+
+    cfg["WEIGHTS"] = weights
+
+
 def build_config(overrides: dict | None = None) -> dict:
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     if overrides:
         deep_update(cfg, overrides)
+    _apply_weight_ladder(cfg)
     return cfg
 
 # =====================================================================
@@ -194,6 +376,30 @@ def trim(s: str) -> str:
 def to_int(s: str, default: int) -> int:
     try:
         return int(trim(s) or str(default))
+    except Exception:
+        return default
+
+
+def resolve_data_path(path: Path) -> Path:
+    """Locate a data file relative to CWD or the script directory.
+
+    This preserves the prior right-click/run UX in IDEs by falling back to the
+    repository directory if the current working directory does not contain the
+    default CSVs.
+    """
+
+    if path.exists():
+        return path
+    if not path.is_absolute():
+        alt = SCRIPT_DIR / path
+        if alt.exists():
+            return alt
+    return path
+
+
+def to_float(s: str, default: float) -> float:
+    try:
+        return float((trim(s) or str(default)).replace(",", "."))
     except Exception:
         return default
 
@@ -224,6 +430,7 @@ class CompRow:
     repeat: int
     repeat_max: int
     task_count: int
+    total_effort: float
     names: List[str]
     priority: bool
     assigned_flag: bool
@@ -387,10 +594,12 @@ class FamilyRegistry:
         return alias or fam
 
 def read_csv_matrix(path: Path) -> List[List[str]]:
-    txt = path.read_text(encoding="utf-8-sig", errors="replace")
+    actual = resolve_data_path(path)
+    txt = actual.read_text(encoding="utf-8-sig", errors="replace")
     return [list(row) for row in csv.reader(io.StringIO(txt))]
 
 def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
+    path = resolve_data_path(path)
     rows: List[CompRow] = []
     people: Set[str] = set()
     used_siblingkey = False
@@ -416,6 +625,7 @@ def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
             cand_role     = split_csv_people(rr.get("Role-Filtered Candidates",""))
             cand_all      = split_csv_people(rr.get("Candidates",""))
             candidates_role = cand_role if cand_role else cand_all
+            total_effort  = max(0.0, to_float(rr.get("Total Effort", ""), task_count))
 
             people.update(assigned_to)
             people.update(candidates_role)
@@ -425,7 +635,7 @@ def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
 
             rows.append(CompRow(
                 cid=cid, week_label=week_label, week_num=week_num, day=day,
-                repeat=repeat, repeat_max=repeat_max, task_count=task_count,
+                repeat=repeat, repeat_max=repeat_max, task_count=task_count, total_effort=total_effort,
                 names=names, priority=prio, assigned_flag=assigned_flag,
                 assigned_to=assigned_to, candidates_all=cand_all, candidates_role=candidates_role,
                 sibling_key=sib
@@ -811,7 +1021,8 @@ def _encode(args):
         # Preserve prior logic that 'priority' drives cooldown/repeat as TOP-only:
         r.priority = bool(r.is_top)
 
-    family_registry = FamilyRegistry(Path(getattr(args, "family_registry", Path("family_registry.json"))))
+    fam_reg_path = resolve_data_path(Path(getattr(args, "family_registry", Path("family_registry.json"))))
+    family_registry = FamilyRegistry(fam_reg_path)
     family_registry.load()
 
     family_components: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
@@ -949,6 +1160,9 @@ def _encode(args):
 
     # -------------------- Prebuild x-variables --------------------
     pb = PBWriter(debug_relax=DEBUG_RELAX, W_HARD=W_HARD)
+
+    def debug_relax_label(label: str, *, allow_relax: bool = True) -> str | None:
+        return label if (DEBUG_RELAX and allow_relax) else None
 
     x_index: Dict[Tuple[str, str], str] = {}
     x_to_label: Dict[str, str] = {}
@@ -1248,10 +1462,15 @@ def _encode(args):
                     gate = make_and(pb, T_both_weeks, AutoEither)
                     V_pri = make_and(pb, gate, PriEither)
                     if PRIORITY_COOLDOWN_HARD:
-                        pb.add_le([(1, V_pri)], 0,
-                                  relax_label=(f"cooldown_prev_hard_PRI::fam={fam_trim}::W{w}::{p}" if DEBUG_RELAX else None),
-                                  M=1,
-                                  info={"kind":"cooldown_prev_hard_PRI","week":str(w),"person":p,"family":fam_trim})
+                        pb.add_le(
+                            [(1, V_pri)],
+                            0,
+                            relax_label=debug_relax_label(
+                                f"cooldown_prev_hard_PRI::fam={fam_trim}::W{w}::{p}", allow_relax=False
+                            ),
+                            M=1,
+                            info={"kind": "cooldown_prev_hard_PRI", "week": str(w), "person": p, "family": fam_trim},
+                        )
                     else:
                         cooldown_viols_pri[(p, fam_trim)].append(V_pri)
                         cooldown_gate_info[V_pri] = {
@@ -1275,10 +1494,15 @@ def _encode(args):
                     V_non = make_and(pb, not_pri, AutoEither)
 
                 if NONPRIORITY_COOLDOWN_HARD:
-                    pb.add_le([(1, V_non)], 0,
-                              relax_label=(f"cooldown_prev_hard_NON::fam={fam_trim}::W{w}::{p}" if DEBUG_RELAX else None),
-                              M=1,
-                              info={"kind":"cooldown_prev_hard_NON","week":str(w),"person":p,"family":fam_trim})
+                    pb.add_le(
+                        [(1, V_non)],
+                        0,
+                        relax_label=debug_relax_label(
+                            f"cooldown_prev_hard_NON::fam={fam_trim}::W{w}::{p}", allow_relax=False
+                        ),
+                        M=1,
+                        info={"kind": "cooldown_prev_hard_NON", "week": str(w), "person": p, "family": fam_trim},
+                    )
                 else:
                     cooldown_viols_non[(p, fam_trim)].append(V_non)
                     cooldown_gate_info[V_non] = {
@@ -1521,6 +1745,11 @@ def _encode(args):
 
     candidate_effort_total: Dict[str, int] = defaultdict(int)
     candidate_effort_auto: Dict[str, int] = defaultdict(int)
+    component_effort_units: Dict[str, int] = {}
+    # Track per-person/day totals so the effort-floor eligibility can respect the
+    # AUTO-day rule (needs ≥2 task_count on any day that includes AUTO).
+    person_day_taskcount: Dict[Tuple[str, int, str], int] = defaultdict(int)
+    person_day_has_auto: Dict[Tuple[str, int, str], bool] = defaultdict(bool)
     for r in comps:
         tc = max(1, int(r.task_count))
         is_manual_flag = bool(original_manual.get(r.cid, False))
@@ -1528,6 +1757,70 @@ def _encode(args):
             candidate_effort_total[p] += tc
             if not is_manual_flag:
                 candidate_effort_auto[p] += tc
+            day_key = (p, r.week_num, trim(getattr(r, "day", "")))
+            person_day_taskcount[day_key] += tc
+            if not is_manual_flag:
+                person_day_has_auto[day_key] = True
+
+        effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
+        component_effort_units[r.cid] = effort_units
+
+    person_effort_terms: Dict[str, List[Tuple[int, str]]] = {}
+    person_effort_caps: Dict[str, int] = {}
+    person_effort_terms_effort: Dict[str, List[Tuple[int, str]]] = {}
+    person_effort_caps_effort: Dict[str, int] = {}
+    effort_floor_attainable: Dict[str, int] = {}
+    effort_floor_auto_blocked: Dict[str, Dict[Tuple[int, str], Dict[str, int]]] = {}
+    effort_floor_blocked_cids: Dict[str, Set[str]] = defaultdict(set)
+    for p in people:
+        terms_p: List[Tuple[int, str]] = []
+        terms_effort: List[Tuple[int, str]] = []
+        U_p = 0
+        U_effort = 0
+        attainable_groups: Dict[Tuple[str, str], int] = {}
+        for r in comps:
+            if p in cand.get(r.cid, []):
+                tc = max(1, int(r.task_count))
+                terms_p.append((tc, xv(r.cid, p)))
+                U_p += tc
+
+                effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
+                # Respect AUTO-day minimums when building effort-floor capacity.
+                week_key = int(getattr(r, "week_num", 0) or 0)
+                day_key = trim(getattr(r, "day", ""))
+                pd_key = (p, week_key, day_key)
+                auto_for_day = person_day_has_auto.get(pd_key, False)
+                day_capacity = person_day_taskcount.get(pd_key, 0)
+                auto_blocked = (auto_for_day and day_capacity < 2 and not original_manual.get(r.cid, False))
+                if auto_blocked:
+                    blocked_key = f"W{week_key}:{day_key or 'UNSPEC'}"
+                    effort_floor_auto_blocked.setdefault(p, {})[blocked_key] = {
+                        "total_task_count": day_capacity,
+                        "component": r.cid,
+                        "effort_units": effort_units,
+                        "week": week_key,
+                        "day": day_key,
+                    }
+                    effort_floor_blocked_cids[p].add(r.cid)
+                else:
+                    terms_effort.append((effort_units, xv(r.cid, p)))
+                    U_effort += effort_units
+
+                week_key = trim(getattr(r, "week", ""))
+                fam_tokens = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
+                fam_tokens = tuple(trim(f) for f in fam_tokens if trim(f))
+                if not fam_tokens:
+                    fam_tokens = (r.cid,)
+                for fam in fam_tokens:
+                    gkey = (week_key, fam)
+                    attainable_groups[gkey] = max(attainable_groups.get(gkey, 0), effort_units)
+        if terms_p and U_p > 0:
+            person_effort_terms[p] = terms_p
+            person_effort_caps[p] = U_p
+        if terms_effort and U_effort > 0:
+            person_effort_terms_effort[p] = terms_effort
+            person_effort_caps_effort[p] = U_effort
+            effort_floor_attainable[p] = sum(attainable_groups.values())
 
     if fairness_reference not in {"auto", "all"}:
         fairness_reference = "auto"
@@ -1551,18 +1844,8 @@ def _encode(args):
             t = max(t + 1, t * base)
         return ts
 
-    for p in people:
-        # Build across-horizon effort terms for person p
-        terms_p: List[Tuple[int, str]] = []
-        U_p = 0
-        for r in comps:
-            if p in cand.get(r.cid, []):
-                tc = max(1, int(r.task_count))
-                terms_p.append((tc, xv(r.cid, p)))
-                U_p += tc
-        if not terms_p or U_p <= 0:
-            continue
-
+    for p, terms_p in person_effort_terms.items():
+        U_p = person_effort_caps.get(p, 0)
         if fairness_avail_enabled:
             raw_slots = fairness_counts_map.get(p, 0)
             ratio = raw_slots / fairness_counts_mean if fairness_counts_mean > 0 else 1.0
@@ -1602,6 +1885,106 @@ def _encode(args):
             # S_p + t * b_under >= t
             pb.add_ge(terms_p + [(t, b_under)], t)
             penalties.append((W6_UNDER * (REPEAT_OVER_GEO ** (idx - 1)), b_under))
+
+    # ---------- Effort floor (eligible people only) ----------
+    effort_floor_vars: Dict[str, str] = {}
+    effort_floor_notes: Dict[str, int | str] = {}
+    effort_floor_feasible = True
+    effort_floor_hard_applied = False
+    EFFORT_FLOOR_TARGET = int(CONFIG.get("EFFORT_FLOOR_TARGET", 0) or 0)
+    EFFORT_FLOOR_HARD = bool(CONFIG.get("EFFORT_FLOOR_HARD", False))
+    W_EFFORT_FLOOR = int(CONFIG.get("WEIGHTS", {}).get("W_EFFORT_FLOOR", 0))
+    effort_floor_eligible: List[str] = []
+    eligible_terms: List[Tuple[str, List[Tuple[int, str]], int]] = []
+    if EFFORT_FLOOR_TARGET > 0:
+        for p, terms_p in person_effort_terms_effort.items():
+            U_p = person_effort_caps_effort.get(p, 0)
+            attainable = effort_floor_attainable.get(p, 0)
+            if U_p < EFFORT_FLOOR_TARGET or attainable < EFFORT_FLOOR_TARGET:
+                continue
+            effort_floor_eligible.append(p)
+            eligible_terms.append((p, terms_p, U_p))
+
+        eligible_set = set(effort_floor_eligible)
+        effort_floor_supply_effort = sum(
+            component_effort_units.get(cid, 0)
+            for cid in component_effort_units
+            if eligible_set.intersection(cand.get(cid, []))
+        )
+        effort_floor_supply_capped = sum(
+            min(component_effort_units.get(cid, 0), EFFORT_FLOOR_TARGET)
+            for cid in component_effort_units
+            if eligible_set.intersection(cand.get(cid, []))
+        )
+        effort_floor_demand = EFFORT_FLOOR_TARGET * len(effort_floor_eligible)
+        effort_floor_notes = {
+            "demand": effort_floor_demand,
+            "supply_effort": effort_floor_supply_effort,
+            "supply_capped": effort_floor_supply_capped,
+            "attainable_caps": {p: effort_floor_attainable.get(p, 0) for p in people},
+        }
+        if effort_floor_auto_blocked:
+            effort_floor_notes["auto_day_blocked"] = effort_floor_auto_blocked
+        if not effort_floor_eligible:
+            effort_floor_feasible = False
+            effort_floor_notes.setdefault("reason", "no_eligible_people")
+        if effort_floor_eligible:
+            effort_floor_notes["eligible_attainable_min"] = min(
+                effort_floor_attainable.get(p, 0) for p in effort_floor_eligible
+            )
+            effort_floor_notes["eligible_attainable_max"] = max(
+                effort_floor_attainable.get(p, 0) for p in effort_floor_eligible
+            )
+        if len(effort_floor_eligible) < len(person_effort_terms_effort):
+            missing = {
+                p: effort_floor_attainable.get(p, 0)
+                for p in person_effort_terms_effort
+                if p not in effort_floor_eligible
+            }
+            effort_floor_notes["ineligible_by_attainable"] = missing
+        if effort_floor_demand > effort_floor_supply_effort:
+            effort_floor_feasible = False
+            effort_floor_notes["reason"] = "insufficient_global_effort"
+        elif effort_floor_demand > effort_floor_supply_capped:
+            effort_floor_feasible = False
+            effort_floor_notes["reason"] = "insufficient_slot_capacity"
+
+        if effort_floor_feasible and effort_floor_eligible:
+            probe_ok, probe_notes = _greedy_effort_floor_probe(
+                target=EFFORT_FLOOR_TARGET,
+                eligible_people=effort_floor_eligible,
+                comps=comps,
+                candidates=cand,
+                original_manual=original_manual,
+                blocked=effort_floor_blocked_cids,
+            )
+            effort_floor_notes["feasibility_probe"] = probe_notes
+            if not probe_ok:
+                effort_floor_feasible = False
+                effort_floor_notes["reason"] = "feasibility_probe_failed"
+
+        if effort_floor_feasible:
+            for p, terms_p, U_p in eligible_terms:
+                under_floor = pb.new_var()
+                pb.add_ge(
+                    terms_p + [(EFFORT_FLOOR_TARGET, under_floor)],
+                    EFFORT_FLOOR_TARGET,
+                    info={"kind": "effort_floor_soft", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
+                )
+                if W_EFFORT_FLOOR != 0:
+                    penalties.append((W_EFFORT_FLOOR, under_floor))
+                    effort_floor_vars[under_floor] = (
+                        f"effort_floor_under::person={p}::target={EFFORT_FLOOR_TARGET}::capacity={U_p}"
+                    )
+
+                if EFFORT_FLOOR_HARD:
+                    pb.add_ge(
+                        terms_p,
+                        EFFORT_FLOOR_TARGET,
+                        relax_label=debug_relax_label(f"effort_floor_hard::{p}", allow_relax=False),
+                        info={"kind": "effort_floor_hard", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
+                    )
+                    effort_floor_hard_applied = True
 
     # ---------- Per-person × family repeat limits (geometric overage) ----------
     repeat_limit_pri_vars: Dict[str, str] = {}
@@ -1654,7 +2037,9 @@ def _encode(args):
                     pb.add_le(
                         pri_terms_pf,
                         LIMIT_PRI,
-                        relax_label=(f"repeat_limit_PRI_hard::{p}::fam={fam_trim}" if DEBUG_RELAX else None),
+                        relax_label=debug_relax_label(
+                            f"repeat_limit_PRI_hard::{p}::fam={fam_trim}", allow_relax=False
+                        ),
                         M=len(pri_terms_pf),
                         info={
                             "kind": "repeat_limit_PRI_hard",
@@ -1693,7 +2078,9 @@ def _encode(args):
                     pb.add_le(
                         non_terms_pf,
                         LIMIT_NON,
-                        relax_label=(f"repeat_limit_NON_hard::{p}::fam={fam_trim}" if DEBUG_RELAX else None),
+                        relax_label=debug_relax_label(
+                            f"repeat_limit_NON_hard::{p}::fam={fam_trim}", allow_relax=False
+                        ),
                         M=len(non_terms_pf),
                         info={
                             "kind": "repeat_limit_NON_hard",
@@ -1723,16 +2110,22 @@ def _encode(args):
 
     top_any_by_person: Dict[str, str] = {}
     top_miss_by_person: Dict[str, str] = {}
+    second_any_by_person: Dict[str, str] = {}
     for p in people:
         x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
-        if not x_top:
-            continue
-        TopAny = make_or(pb, x_top)
-        z_miss = pb.new_var()
-        pb.add_eq([(1, z_miss), (1, TopAny)], 1)
-        top_any_by_person[p] = TopAny
-        top_miss_by_person[p] = z_miss
-        priority_required_vars[z_miss] = f"priority_required::person={p}"
+        if x_top:
+            TopAny = make_or(pb, x_top)
+            z_miss = pb.new_var()
+            pb.add_eq([(1, z_miss), (1, TopAny)], 1)
+            top_any_by_person[p] = TopAny
+            top_miss_by_person[p] = z_miss
+            priority_required_vars[z_miss] = f"priority_required::tier=TOP::person={p}"
+        else:
+            x_second = [xv(r.cid, p) for r in comps if r.is_second and p in cand.get(r.cid, [])]
+            if not x_second:
+                continue
+            SecondAny = make_or(pb, x_second)
+            second_any_by_person[p] = SecondAny
 
     if PRIORITY_COVERAGE_MODE == "global":
         # TOP (independent)
@@ -1742,21 +2135,15 @@ def _encode(args):
             penalties.append((top_weight, z))
             priority_coverage_vars_top[z] = f"priority_coverage_TOP::GLOBAL::person={p}"
 
-        # SECOND (gated by NOT already TOP: penalty only if neither TOP nor SECOND)
-        for p in people:
-            x_second = [xv(r.cid, p) for r in comps if r.is_second and p in cand.get(r.cid, [])]
-            if not x_second:
-                continue  # not eligible for second; don't penalize
-            SecondAny = make_or(pb, x_second)
-
-            # Build TopAny (if eligible for top); if no top-eligibility, TopAny is None
-            TopAny = top_any_by_person.get(p)
-
-            CoveredEither = make_or(pb, [SecondAny, TopAny])  # treat TOP as satisfying SECOND coverage
-            z2 = pb.new_var()  # 1 - (SecondAny OR TopAny)
-            pb.add_eq([(1, z2), (1, CoveredEither)], 1)
-            penalties.append((T2C, z2))
-            priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::GLOBAL::person={p}"
+        # SECOND (only when no TOP eligibility at all)
+        second_weight = W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T2C
+        for p in sorted(second_any_by_person):
+            SecondAny = second_any_by_person[p]
+            z2 = pb.new_var()
+            pb.add_eq([(1, z2), (1, SecondAny)], 1)
+            penalties.append((second_weight, z2))
+            priority_coverage_vars_second[z2] = f"priority_coverage_SECOND::GLOBAL::person={p}"
+            priority_required_vars[z2] = f"priority_required::tier=SECOND::person={p}"
 
     else:  # family mode
         fam_tokens2: Set[str] = set()
@@ -1772,34 +2159,24 @@ def _encode(args):
                 x_top_pf = [xv(r.cid, p)
                             for r in comps
                             if r.is_top and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
-                if not x_top_pf:
-                    continue
-                TopAny_pf = make_or(pb, x_top_pf)
-                z = pb.new_var()
-                pb.add_eq([(1, z), (1, TopAny_pf)], 1)
-                penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
-                priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
-
-        # SECOND (gated by NOT already TOP in same family: penalty only if neither TOP nor SECOND in that family)
-        for p in people:
-            for fam in sorted(fam_tokens2):
-                x_second_pf = [xv(r.cid, p)
-                               for r in comps
-                               if r.is_second and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
-                if not x_second_pf:
-                    continue  # not eligible for second in this family
-                SecondAny_pf = make_or(pb, x_second_pf)
-
-                x_top_pf = [xv(r.cid, p)
-                            for r in comps
-                            if r.is_top and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
-                TopAny_pf = make_or(pb, x_top_pf) if x_top_pf else None
-
-                CoveredEither_pf = make_or(pb, [SecondAny_pf, TopAny_pf])
-                z2 = pb.new_var()
-                pb.add_eq([(1, z2), (1, CoveredEither_pf)], 1)
-                penalties.append((T2C, z2))
-                priority_coverage_vars_second[z2] = f"priority_coverage_SECOND(NOT_TOP)::FAMILY::person={p}::family={fam}"
+                if x_top_pf:
+                    TopAny_pf = make_or(pb, x_top_pf)
+                    z = pb.new_var()
+                    pb.add_eq([(1, z), (1, TopAny_pf)], 1)
+                    penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
+                    priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
+                else:
+                    x_second_pf = [xv(r.cid, p)
+                                   for r in comps
+                                   if r.is_second and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
+                    if not x_second_pf:
+                        continue  # not eligible for second in this family
+                    SecondAny_pf = make_or(pb, x_second_pf)
+                    z2 = pb.new_var()
+                    pb.add_eq([(1, z2), (1, SecondAny_pf)], 1)
+                    penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T2C, z2))
+                    priority_coverage_vars_second[z2] = f"priority_coverage_SECOND::FAMILY::person={p}::family={fam}"
+                    priority_required_vars[z2] = f"priority_required::tier=SECOND::person={p}::family={fam}"
 
     # Objective and dump
     duplicate_penalties = _find_duplicates(penalties)
@@ -1850,6 +2227,14 @@ def _encode(args):
         "family_registry_path": str(getattr(args, "family_registry", "family_registry.json")),
         "family_labels": family_labels,
         "deprioritized_pair_vars": deprioritized_pair_vars,
+        "effort_floor_vars": effort_floor_vars,
+        "effort_floor_target": EFFORT_FLOOR_TARGET,
+        "effort_floor_hard": EFFORT_FLOOR_HARD,
+        "effort_floor_feasible": effort_floor_feasible,
+        "effort_floor_hard_applied": effort_floor_hard_applied,
+        "effort_floor_notes": effort_floor_notes,
+        "effort_floor_eligible": sorted(effort_floor_eligible),
+        "effort_floor_attainable": effort_floor_attainable,
         "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
         "fairness_availability": fairness_target_notes,
@@ -1867,6 +2252,36 @@ def _encode(args):
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
         f"Allow unassigned components: {'ON' if DEBUG_ALLOW_UNASSIGNED else 'OFF'} "
         f"(W_DEBUG_UNASSIGNED={W_DEBUG_UNASSIGNED}, drop_vars={len(component_drop_vars)})",
+    ]
+    ladder_cfg = CONFIG.get("WEIGHT_LADDER", {})
+    ladder_order = ladder_cfg.get("ORDER") or []
+    if ladder_order:
+        anchor_desc = ladder_cfg.get("TOP")
+        if anchor_desc is None:
+            anchor_desc = ladder_cfg.get("RATIO", 100) ** max(len(ladder_order) - 1, 0)
+        stats.append(
+            "Weight ladder: "
+            f"ratio={ladder_cfg.get('RATIO', 100)}, anchor={anchor_desc}, "
+            f"order={', '.join(ladder_order)}"
+        )
+    else:
+        stats.append("Weight ladder: disabled (explicit WEIGHTS in use).")
+    if EFFORT_FLOOR_TARGET > 0:
+        feas_note = "ON" if effort_floor_feasible else "SKIPPED (insufficient supply)"
+        stats.append(
+            "Effort floor: "
+            f"target={EFFORT_FLOOR_TARGET}, hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, "
+            f"feasible={feas_note}, eligible_people={len(effort_floor_eligible)}, "
+            f"demand={effort_floor_notes.get('demand', 0)}, "
+            f"supply_effort={effort_floor_notes.get('supply_effort', 0)}, "
+            f"supply_capped={effort_floor_notes.get('supply_capped', 0)}, "
+            f"attainable_min={effort_floor_notes.get('eligible_attainable_min', 0)}, "
+            f"attainable_max={effort_floor_notes.get('eligible_attainable_max', 0)}"
+        )
+        reason = effort_floor_notes.get("reason")
+        if reason:
+            stats[-1] += f", reason={reason}"
+    stats.extend([
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
@@ -1893,7 +2308,7 @@ def _encode(args):
         f"T2C={T2C} (SECOND; ignored if TOP already).",
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
-    ]
+    ])
     stats.append(
         f"Family registry: {getattr(args, 'family_registry', 'family_registry.json')} (tracked {len(family_labels)} families)"
     )
@@ -1925,6 +2340,14 @@ def _encode(args):
             stats.append("Auto-soften: enabled but no families crossed the scarcity thresholds.")
     else:
         stats.append("Auto-soften: disabled via CONFIG.")
+
+    if EFFORT_FLOOR_TARGET > 0:
+        stats.append(
+            f"Effort floor: target={EFFORT_FLOOR_TARGET}, weight={W_EFFORT_FLOOR}, "
+            f"hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, eligible_people={len(effort_floor_eligible)}"
+        )
+        if effort_floor_eligible:
+            stats.append("  • Eligible for effort floor: " + ", ".join(sorted(effort_floor_eligible)))
     dprio_count = len(deprioritized_pair_vars)
     stats.append(f"Deprioritized pair soft hits (potential vars): {dprio_count}")
 
@@ -1970,7 +2393,8 @@ def main() -> None:
     args = parse_args()
     overrides: dict | None = None
     if args.config:
-        overrides = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        cfg_path = resolve_data_path(Path(args.config))
+        overrides = json.loads(cfg_path.read_text(encoding="utf-8"))
     encode_with_args(args, overrides=overrides)
 
 
