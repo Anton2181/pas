@@ -251,6 +251,86 @@ def test_debug_relax_weights_are_recorded(tmp_path: Path) -> None:
     assert "DebugRelax" in (models_rows[0].get("penalties") or "")
 
 
+def test_unknown_penalties_surface_with_weights(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="CU1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Task Unknown",
+            candidates=["Alex"],
+        )
+    ]
+    backend = [backend_row("Alex")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path, components=comps, backend=backend, overrides=overrides, prefix="consume_unknown_weight"
+    )
+    vm = json.loads(paths["map"].read_text(encoding="utf-8"))
+    mystery_var = "x9999"
+    vm.setdefault("penalty_weights", {})[mystery_var] = 777
+    vm.setdefault("x_to_label", {})[mystery_var] = "mystery::flag"
+    paths["map"].write_text(json.dumps(vm), encoding="utf-8")
+
+    models_txt = tmp_path / "models.txt"
+    models_txt.write_text(f"v {mystery_var}\n", encoding="utf-8")
+
+    penalties_out = tmp_path / "penalties.csv"
+    models_out = tmp_path / "models_summary.csv"
+    assigned_out = tmp_path / "assigned.csv"
+    loads_out = tmp_path / "loads.csv"
+    bars_out = tmp_path / "bars.png"
+    lorenz_out = tmp_path / "lorenz.png"
+
+    env = os.environ.copy()
+    env.setdefault("MPLBACKEND", "Agg")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(ROOT / "consume_saved_models.py"),
+            "--models",
+            str(models_txt),
+            "--varmap",
+            str(paths["map"]),
+            "--components",
+            str(paths["components"]),
+            "--metric",
+            "effort",
+            "--plots-bars",
+            str(bars_out),
+            "--plots-lorenz",
+            str(lorenz_out),
+            "--assigned-out",
+            str(assigned_out),
+            "--models-out",
+            str(models_out),
+            "--loads-out",
+            str(loads_out),
+            "--penalties-out",
+            str(penalties_out),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    with penalties_out.open("r", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows and rows[0]["Category"] == "UnknownPenalty"
+    assert rows[0]["Var"] == mystery_var
+    assert rows[0]["Weight"] == "777"
+    assert rows[0]["Label"] == "mystery::flag"
+
+    with models_out.open("r", encoding="utf-8") as fh:
+        models_rows = list(csv.DictReader(fh))
+    assert models_rows and models_rows[0].get("n_UnknownPenalty") == "1"
+
+
 def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)

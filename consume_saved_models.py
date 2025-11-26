@@ -286,6 +286,7 @@ def find_penalties(
     penalty_maps: Dict[str, Dict[str, str]],
     manual_cids_from_input: Set[str] | None = None,
     penalty_weights: Dict[str, int] | None = None,
+    x_to_label: Dict[str, str] | None = None,
 ):
     var_to_cat = {}
     var_to_label = {}
@@ -315,7 +316,12 @@ def find_penalties(
 
             activations.append((v, cat, lbl, weight))
         else:
-            unknown_true.append(v)
+            weight = (penalty_weights or {}).get(v)
+            if weight is not None:
+                lbl = (x_to_label or {}).get(v, "")
+                activations.append((v, "UnknownPenalty", lbl, weight))
+            else:
+                unknown_true.append(v)
 
     counts: Dict[str,int] = {}
     for _, cat, _, _ in activations:
@@ -350,7 +356,13 @@ def main():
     for idx, true_vars in enumerate(models_true_vars, start=1):
         pairs = decode_pairs(true_vars, x_to_label)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
-        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps, manual_cids_from_input, penalty_weights)
+        acts, counts, unknown_true = find_penalties(
+            true_vars,
+            penalty_maps,
+            manual_cids_from_input,
+            penalty_weights,
+            x_to_label,
+        )
         penalty_summary = "; ".join(
             f"{cat}:{label}" if label else cat for _, cat, label, _ in sorted(acts, key=lambda t: (t[1], t[0]))
         )
@@ -381,6 +393,7 @@ def main():
             "n_AutoDayMinSunday": str(counts.get("AutoDayMinSunday", 0)),
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
             "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
+            "n_UnknownPenalty": str(counts.get("UnknownPenalty", 0)),
             "penalties": penalty_summary,
         })
 
@@ -397,7 +410,7 @@ def main():
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
             "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
             "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor","n_AutoDayMin","n_AutoDayMinSunday",
-            "n_DebugRelax","n_DebugUnassigned","penalties"  # <-- NEW columns
+            "n_DebugRelax","n_DebugUnassigned","n_UnknownPenalty","penalties"  # <-- NEW columns
         ])
         w.writeheader()
         w.writerows(models_summary)
