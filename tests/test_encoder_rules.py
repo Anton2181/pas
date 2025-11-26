@@ -337,6 +337,34 @@ def test_effort_floor_hard_skips_when_infeasible(tmp_path: Path) -> None:
     assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_global_effort"
 
 
+def test_effort_floor_hard_skips_when_slots_too_few(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Big Task",
+            effort=5,
+            candidates=["Alex", "Blair", "Casey"],
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair"), backend_row("Casey")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_slot")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_feasible") is False
+    assert varmap.get("effort_floor_hard_applied") is False
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_slot_capacity"
+
+
 def test_pipeline_produces_assignments(tmp_path: Path) -> None:
     comps = [
         component_row(

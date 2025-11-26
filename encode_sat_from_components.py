@@ -1806,19 +1806,28 @@ def _encode(args):
             eligible_terms.append((p, terms_p, U_p))
 
         eligible_set = set(effort_floor_eligible)
-        effort_floor_supply = sum(
+        effort_floor_supply_effort = sum(
             component_effort_units.get(cid, 0)
+            for cid in component_effort_units
+            if eligible_set.intersection(cand.get(cid, []))
+        )
+        effort_floor_supply_capped = sum(
+            min(component_effort_units.get(cid, 0), EFFORT_FLOOR_TARGET)
             for cid in component_effort_units
             if eligible_set.intersection(cand.get(cid, []))
         )
         effort_floor_demand = EFFORT_FLOOR_TARGET * len(effort_floor_eligible)
         effort_floor_notes = {
             "demand": effort_floor_demand,
-            "supply": effort_floor_supply,
+            "supply_effort": effort_floor_supply_effort,
+            "supply_capped": effort_floor_supply_capped,
         }
-        if effort_floor_demand > effort_floor_supply:
+        if effort_floor_demand > effort_floor_supply_effort:
             effort_floor_feasible = False
             effort_floor_notes["reason"] = "insufficient_global_effort"
+        elif effort_floor_demand > effort_floor_supply_capped:
+            effort_floor_feasible = False
+            effort_floor_notes["reason"] = "insufficient_slot_capacity"
 
         if effort_floor_feasible:
             for p, terms_p, U_p in eligible_terms:
@@ -2134,7 +2143,9 @@ def _encode(args):
             "Effort floor: "
             f"target={EFFORT_FLOOR_TARGET}, hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, "
             f"feasible={feas_note}, eligible_people={len(effort_floor_eligible)}, "
-            f"demand={effort_floor_notes.get('demand', 0)}, supply={effort_floor_notes.get('supply', 0)}"
+            f"demand={effort_floor_notes.get('demand', 0)}, "
+            f"supply_effort={effort_floor_notes.get('supply_effort', 0)}, "
+            f"supply_capped={effort_floor_notes.get('supply_capped', 0)}"
         )
     stats.extend([
         "Day rules:",
