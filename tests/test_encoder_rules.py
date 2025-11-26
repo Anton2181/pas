@@ -415,6 +415,32 @@ def test_effort_floor_excludes_people_who_cannot_clear_family_blocks(tmp_path: P
     assert varmap.get("effort_floor_hard_applied") is True
 
 
+def test_effort_floor_skips_when_two_day_probe_fails(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid=f"AX{i}", week="Week 1", day=day, task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=1.0)
+        for i, day in enumerate(["Tuesday", "Wednesday", "Thursday", "Friday"], start=1)
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 2,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_probe")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_feasible") is False
+    assert varmap.get("effort_floor_hard_applied") is False
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "feasibility_probe_failed"
+
+    probe = varmap.get("effort_floor_notes", {}).get("feasibility_probe", {})
+    assert probe.get("covered_effort", {}).get("Alex") == 1
+    assert probe.get("covered_effort", {}).get("Blair") == 1
+
+
 def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
     comps = [
         component_row(

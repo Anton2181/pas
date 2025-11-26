@@ -273,6 +273,85 @@ def deep_update(dst: dict, src: dict) -> dict:
     return dst
 
 
+def _greedy_effort_floor_probe(
+    *,
+    target: int,
+    eligible_people: Iterable[str],
+    comps: List[CompRow],
+    candidates: Dict[str, List[str]],
+    original_manual: Dict[str, bool],
+) -> tuple[bool, dict]:
+    """Attempt to cover the effort floor using a conservative greedy heuristic.
+
+    The probe respects per-week family exclusivity, forbids more than one AUTO
+    named-day per person/week (mirroring the hard two-day constraint), and
+    limits people to one task per named day. If the probe cannot find a
+    covering assignment, we treat the floor as infeasible rather than risk an
+    UNSAT model.
+    """
+
+    remaining = {p: target for p in eligible_people}
+    if not remaining or target <= 0:
+        return True, {"assignments": {}, "covered_effort": {}, "remaining_need": remaining}
+
+    # Track usage to mirror the strongest per-person hard rules.
+    family_week_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
+    day_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
+    auto_week_used: Dict[str, Set[int]] = defaultdict(set)
+    assignments: Dict[str, List[str]] = defaultdict(list)
+
+    comp_meta: List[tuple[int, CompRow]] = []
+    for r in comps:
+        effort_units = max(1, int(math.ceil(getattr(r, "total_effort", max(1, int(r.task_count))))))
+        comp_meta.append((effort_units, r))
+
+    # Highest-effort first to reduce waste; stable tie-breaker on cid for tests.
+    comp_meta.sort(key=lambda t: (-t[0], t[1].cid))
+
+    for effort_units, r in comp_meta:
+        if all(need <= 0 for need in remaining.values()):
+            break
+        if effort_units <= 0:
+            continue
+
+        fams = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
+        fams = tuple(trim(f) for f in fams if trim(f))
+        week = int(getattr(r, "week_num", 0) or 0)
+        day = trim(getattr(r, "day", ""))
+        is_auto = not original_manual.get(r.cid, False)
+
+        # Assign to the person with the highest remaining need that can legally take it.
+        for person in sorted(remaining, key=lambda p: remaining[p], reverse=True):
+            if remaining[person] <= 0:
+                continue
+            if person not in candidates.get(r.cid, []):
+                continue
+            if any((week, fam) in family_week_used[person] for fam in fams):
+                continue
+            if day and (week, day) in day_used[person]:
+                continue
+            if is_auto and week in auto_week_used[person]:
+                continue
+
+            # Take the assignment for this person.
+            remaining[person] -= effort_units
+            assignments[person].append(r.cid)
+            family_week_used[person].update((week, fam) for fam in fams)
+            if day:
+                day_used[person].add((week, day))
+            if is_auto:
+                auto_week_used[person].add(week)
+            break
+
+    covered = {p: target - max(need, 0) for p, need in remaining.items()}
+    success = all(need <= 0 for need in remaining.values())
+    return success, {
+        "assignments": assignments,
+        "covered_effort": covered,
+        "remaining_need": remaining,
+    }
+
+
 def _apply_weight_ladder(cfg: dict) -> None:
     ladder_cfg = cfg.get("WEIGHT_LADDER") or {}
     order: List[str] = ladder_cfg.get("ORDER") or []
@@ -1870,6 +1949,19 @@ def _encode(args):
             effort_floor_feasible = False
             effort_floor_notes["reason"] = "insufficient_slot_capacity"
 
+        if effort_floor_feasible and effort_floor_eligible:
+            probe_ok, probe_notes = _greedy_effort_floor_probe(
+                target=EFFORT_FLOOR_TARGET,
+                eligible_people=effort_floor_eligible,
+                comps=comps,
+                candidates=cand,
+                original_manual=original_manual,
+            )
+            effort_floor_notes["feasibility_probe"] = probe_notes
+            if not probe_ok:
+                effort_floor_feasible = False
+                effort_floor_notes["reason"] = "feasibility_probe_failed"
+
         if effort_floor_feasible:
             for p, terms_p, U_p in eligible_terms:
                 under_floor = pb.new_var()
@@ -2195,6 +2287,9 @@ def _encode(args):
             f"attainable_min={effort_floor_notes.get('eligible_attainable_min', 0)}, "
             f"attainable_max={effort_floor_notes.get('eligible_attainable_max', 0)}"
         )
+        reason = effort_floor_notes.get("reason")
+        if reason:
+            stats[-1] += f", reason={reason}"
     stats.extend([
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
