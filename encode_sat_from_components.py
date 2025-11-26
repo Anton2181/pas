@@ -2195,6 +2195,8 @@ def _encode(args):
         raise ValueError(f"Duplicate penalties detected: {dup_descriptions}")
 
     pb.set_objective(penalties)
+
+    penalty_weights_by_var = {v: w for w, v in penalties}
     pb.dump(args.out)
 
     # Map / debug
@@ -2249,6 +2251,7 @@ def _encode(args):
         "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
         "fairness_availability": fairness_target_notes,
+        "penalty_weights_by_var": penalty_weights_by_var,
         "config": CONFIG
 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
