@@ -1239,13 +1239,14 @@ def _encode(args):
 
 
     # -------------------- Exactly-one per component (hard) --------------------
-    component_drop_vars: Dict[str, str] = {}
+    component_drop_vars: Dict[str, Tuple[str, bool]] = {}
     for r in comps:
         X = [xv(r.cid, p) for p in cand[r.cid]]
         manual_orig = bool(original_manual.get(r.cid, False))
-        if DEBUG_ALLOW_UNASSIGNED and (not manual_orig):
+        allow_drop = DEBUG_ALLOW_UNASSIGNED and ((not manual_orig) or (not X))
+        if allow_drop:
             drop_var = pb.new_var()
-            component_drop_vars[r.cid] = drop_var
+            component_drop_vars[r.cid] = (drop_var, manual_orig)
             x_to_label[drop_var] = f"drop::{r.cid}"
             label = f"exactly_one_or_drop::{r.cid}"
             terms = [(1, v) for v in X] + [(1, drop_var)]
@@ -1270,7 +1271,9 @@ def _encode(args):
 
     penalties: List[Tuple[int, str]] = []
     if DEBUG_ALLOW_UNASSIGNED and W_DEBUG_UNASSIGNED > 0:
-        for cid, drop_var in component_drop_vars.items():
+        for cid, (drop_var, manual_orig) in component_drop_vars.items():
+            if manual_orig:
+                continue
             penalties.append((W_DEBUG_UNASSIGNED, drop_var))
     two_day_soft_vars: Dict[str, str] = {}
 
@@ -2243,7 +2246,8 @@ def _encode(args):
         "cooldown_pri_ladder_vars":  cooldown_pri_ladder_vars,
         "cooldown_non_ladder_vars":  cooldown_non_ladder_vars,
         # Gate visibility for cooldowns (lets you confirm AUTO was required)
-        "component_drop_vars":       component_drop_vars,
+        "component_drop_vars":       {cid: var for cid, (var, _) in component_drop_vars.items()},
+        "component_drop_manual":     {cid: manual for cid, (_, manual) in component_drop_vars.items() if manual},
         "two_day_soft_vars": two_day_soft_vars,
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
