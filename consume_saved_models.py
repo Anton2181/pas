@@ -128,6 +128,7 @@ def parse_models_from_text(text: str) -> List[List[str]]:
 def read_varmap(path: Path):
     vm = json.loads(path.read_text(encoding='utf-8'))
     x_to_label: Dict[str,str] = vm.get('x_to_label', {})
+    manual_original = {cid for cid, flag in (vm.get('manual_components_original') or {}).items() if flag}
 
     # Optional maps (present in newer encoders)
     vprev_pri_vars     = vm.get('vprev_pri_vars', {})      # may be missing in current encoder
@@ -155,8 +156,13 @@ def read_varmap(path: Path):
     for cid, var in component_drop_by_cid.items():
         if not var:
             continue
+        if cid in manual_original:
+            continue
         label = x_to_label.get(var) or f"drop::{cid}"
         component_drop_by_var[var] = label
+
+    auto_day_min_vars = vm.get('auto_day_min_vars', {}) or {}
+    auto_day_min_sunday_vars = vm.get('auto_day_min_sunday_vars', {}) or {}
 
     penalty_maps = {
         'CooldownPRI': vm.get('vprev_pri_vars', {}),
@@ -174,6 +180,8 @@ def read_varmap(path: Path):
         'TwoDaySoft': two_day_soft,
         'DeprioritizedPair': vm.get('deprioritized_pair_vars', {}),  # <-- NEW
         'EffortFloor': effort_floor_vars,
+        'AutoDayMin': auto_day_min_vars,
+        'AutoDayMinSunday': auto_day_min_sunday_vars,
         'DebugRelax': debug_relax_by_var,
         'DebugUnassigned': component_drop_by_var,
     }
@@ -272,7 +280,11 @@ def compute_fairness(schedule_pairs: List[Tuple[str,str]], metric: str,
     return (max(vals), sum(abs(v - mean) for v in vals), -min(vals)), loads
 
 # --------------------- Penalty activation decoding ---------------------
-def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]]):
+def find_penalties(
+    true_vars: List[str],
+    penalty_maps: Dict[str, Dict[str, str]],
+    manual_cids_from_input: Set[str] | None = None,
+):
     var_to_cat = {}
     var_to_label = {}
     for cat, m in penalty_maps.items():
@@ -284,7 +296,21 @@ def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]])
     unknown_true = []
     for v in true_vars:
         if v in var_to_cat:
-            activations.append((v, var_to_cat[v], var_to_label.get(v, "")))
+            cat = var_to_cat[v]
+            lbl = var_to_label.get(v, "")
+
+            # Skip DebugUnassigned penalties for components that were already
+            # manually assigned in the input — they are not solver decisions.
+            if (
+                manual_cids_from_input
+                and cat == "DebugUnassigned"
+                and lbl.startswith("drop::")
+            ):
+                cid = lbl.split("::", 2)[1]
+                if cid in manual_cids_from_input:
+                    continue
+
+            activations.append((v, cat, lbl))
         else:
             unknown_true.append(v)
 
@@ -321,7 +347,7 @@ def main():
     for idx, true_vars in enumerate(models_true_vars, start=1):
         pairs = decode_pairs(true_vars, x_to_label)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
-        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps)
+        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps, manual_cids_from_input)
         penalty_summary = "; ".join(
             f"{cat}:{label}" if label else cat for _, cat, label in sorted(acts, key=lambda t: (t[1], t[0]))
         )
@@ -348,6 +374,8 @@ def main():
             "n_TwoDaySoft": str(counts.get("TwoDaySoft", 0)),  # <-- NEW
             "n_DeprioritizedPair": str(counts.get("DeprioritizedPair", 0)),  # <-- NEW
             "n_EffortFloor": str(counts.get("EffortFloor", 0)),
+            "n_AutoDayMin": str(counts.get("AutoDayMin", 0)),
+            "n_AutoDayMinSunday": str(counts.get("AutoDayMinSunday", 0)),
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
             "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
             "penalties": penalty_summary,
@@ -365,7 +393,7 @@ def main():
             "n_CooldownPRI","n_CooldownNON","n_CooldownStreak","n_CooldownNonConsec",
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
             "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
-            "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor",
+            "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor","n_AutoDayMin","n_AutoDayMinSunday",
             "n_DebugRelax","n_DebugUnassigned","penalties"  # <-- NEW columns
         ])
         w.writeheader()

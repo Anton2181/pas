@@ -146,6 +146,10 @@ DEFAULT_CONFIG = {
         #   * W_SUNDAY_TWO_DAY – softens named-day bans involving Sunday; activates
         #     when a person takes two named days including Sunday under softened
         #     mode; e.g., Tuesday+Sunday combination.
+        #   * W_AUTO_DAY – discourages single-task AUTO days on non-Sundays;
+        #     activates when AUTO appears on a weekday with <2 tasks.
+        #   * W_AUTO_DAY_SUNDAY – same as W_AUTO_DAY but scoped to Sunday,
+        #     letting you tune weekend behavior separately.
         #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
         #     short-staffed; e.g., only one manual assignment on a day that expects
         #     two.
@@ -177,6 +181,8 @@ DEFAULT_CONFIG = {
             "W2_STREAK",
             "W2_COOLDOWN",
             "W_SUNDAY_TWO_DAY",
+            "W_AUTO_DAY",
+            "W_AUTO_DAY_SUNDAY",
             "W3",
             "W5",
             "W6_UNDER",
@@ -195,7 +201,7 @@ DEFAULT_CONFIG = {
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
-            "ENABLED": False,
+            "ENABLED": True,
             "REFERENCE": "auto",  # "auto" or "all"
             "MIN_RATIO": 0.35,
             "MAX_RATIO": 1.85,
@@ -259,8 +265,7 @@ def _greedy_effort_floor_probe(
 
     # Track usage to mirror the strongest per-person hard rules.
     family_week_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
-    day_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
-    auto_week_used: Dict[str, Set[int]] = defaultdict(set)
+    auto_days_by_week: Dict[str, Dict[int, Set[str]]] = defaultdict(lambda: defaultdict(set))
     assignments: Dict[str, List[str]] = defaultdict(list)
 
     comp_meta: List[tuple[int, CompRow]] = []
@@ -293,19 +298,17 @@ def _greedy_effort_floor_probe(
                 continue
             if any((week, fam) in family_week_used[person] for fam in fams):
                 continue
-            if day and (week, day) in day_used[person]:
-                continue
-            if is_auto and week in auto_week_used[person]:
-                continue
+            if is_auto:
+                seen = auto_days_by_week[person].get(week, set())
+                if seen and day and day not in seen:
+                    continue
 
             # Take the assignment for this person.
             remaining[person] -= effort_units
             assignments[person].append(r.cid)
             family_week_used[person].update((week, fam) for fam in fams)
-            if day:
-                day_used[person].add((week, day))
             if is_auto:
-                auto_week_used[person].add(week)
+                auto_days_by_week[person][week].add(day or "__UNNAMED__")
             break
 
     covered = {p: target - max(need, 0) for p, need in remaining.items()}
@@ -993,6 +996,8 @@ def _encode(args):
 
     W3, W4, W5 = weight("W3"), weight("W4"), weight("W5")
     W4_DPR = weight("W4_DPR", default=W4)
+    W_AUTO_DAY = weight("W_AUTO_DAY")
+    W_AUTO_DAY_SUNDAY = weight("W_AUTO_DAY_SUNDAY", default=W_AUTO_DAY)
 
     W6_OVER, W6_UNDER, T1C = weight("W6_OVER"), weight("W6_UNDER"), weight("T1C")
     T2C = weight("T2C", default=max(1, T1C // 10))
@@ -1388,13 +1393,25 @@ def _encode(args):
                           M=1,
                           info={"kind":"exclusion","week":str(w),"day":d,"person":p,"a":a,"b":b})
 
-    # -------------------- HARD: AUTO day rule (weighted by Task Count) --------------------
+    # -------------------- AUTO-day soft penalties (weighted by Task Count) --------------------
+    auto_day_min_vars: Dict[str, str] = {}
+    auto_day_min_sunday_vars: Dict[str, str] = {}
     for key, X_all in person_day_X_all.items():
         p, w, d = key
         A = A_map.get(key)
         if not X_all or A is None:
             continue
-        pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A)], 0)
+
+        v_short = pb.new_var()
+        pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A), (2, v_short)], 0)
+
+        is_sunday = trim(d).lower() == "sunday"
+        if is_sunday:
+            penalties.append((W_AUTO_DAY_SUNDAY, v_short))
+            auto_day_min_sunday_vars[v_short] = f"auto_day_under::sunday::person={p}::week={w}::day={d or 'UNNAMED'}"
+        else:
+            penalties.append((W_AUTO_DAY, v_short))
+            auto_day_min_vars[v_short] = f"auto_day_under::weekday::person={p}::week={w}::day={d or 'UNNAMED'}"
 
     # -------------------- Prev-week cooldown (aggregated per family) --------------------
     fam_index: Dict[Tuple[int, str, str], Dict[str, List[str]]] = defaultdict(lambda: {"any":[], "pri":[], "auto":[]})
@@ -1801,10 +1818,9 @@ def _encode(args):
                         "week": week_key,
                         "day": day_key,
                     }
-                    effort_floor_blocked_cids[p].add(r.cid)
-                else:
-                    terms_effort.append((effort_units, xv(r.cid, p)))
-                    U_effort += effort_units
+
+                terms_effort.append((effort_units, xv(r.cid, p)))
+                U_effort += effort_units
 
                 week_key = trim(getattr(r, "week", ""))
                 fam_tokens = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
@@ -2223,6 +2239,8 @@ def _encode(args):
         "two_day_soft_vars": two_day_soft_vars,
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
+        "auto_day_min_vars": auto_day_min_vars,
+        "auto_day_min_sunday_vars": auto_day_min_sunday_vars,
         "cooldown_gate_info": cooldown_gate_info,
         "family_registry_path": str(getattr(args, "family_registry", "family_registry.json")),
         "family_labels": family_labels,
@@ -2246,6 +2264,7 @@ def _encode(args):
     # Count “gated pairs” (number of cooldown nodes that had an AUTO gate present)
     gated_pairs_count = len(cooldown_gate_info)
     twoday_soft_count = len(two_day_soft_vars)
+    auto_day_var_count = len(auto_day_min_vars) + len(auto_day_min_sunday_vars)
     stats = [
         f"People: {len(people)}",
         f"Components: {len(comps)}",
@@ -2283,7 +2302,7 @@ def _encode(args):
             stats[-1] += f", reason={reason}"
     stats.extend([
         "Day rules:",
-        "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
+        f"  • AUTO present on (person,week,day) ⇒ soft min to 2 tasks (weekday W={W_AUTO_DAY}, Sunday W={W_AUTO_DAY_SUNDAY}); total selectors={auto_day_var_count}.",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
         "  • Two named days in a week require at least one side to be fully manual.",
         "Sibling rules:",

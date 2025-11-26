@@ -89,6 +89,89 @@ def test_debug_unassigned_penalty_counts(tmp_path: Path) -> None:
     assert "DebugUnassigned" in (models_rows[0].get("penalties") or "")
 
 
+def test_manual_assignments_not_counted_as_unassigned(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Task Manual",
+            candidates=["Alex", "Blair"],
+            assigned=True,
+            assigned_to="Alex",
+        )
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 42},
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path, components=comps, backend=backend, overrides=overrides, prefix="consume_manual_dbg"
+    )
+    varmap = json.loads(paths["map"].read_text(encoding="utf-8"))
+    drop_var = next(iter(varmap.get("component_drop_vars", {}).values()))
+
+    models_txt = tmp_path / "models.txt"
+    models_txt.write_text(f"v {drop_var}\n", encoding="utf-8")
+
+    penalties_out = tmp_path / "penalties.csv"
+    models_out = tmp_path / "models_summary.csv"
+    assigned_out = tmp_path / "assigned.csv"
+    loads_out = tmp_path / "loads.csv"
+    bars_out = tmp_path / "bars.png"
+    lorenz_out = tmp_path / "lorenz.png"
+
+    env = os.environ.copy()
+    env.setdefault("MPLBACKEND", "Agg")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(ROOT / "consume_saved_models.py"),
+            "--models",
+            str(models_txt),
+            "--varmap",
+            str(paths["map"]),
+            "--components",
+            str(paths["components"]),
+            "--metric",
+            "effort",
+            "--plots-bars",
+            str(bars_out),
+            "--plots-lorenz",
+            str(lorenz_out),
+            "--assigned-out",
+            str(assigned_out),
+            "--models-out",
+            str(models_out),
+            "--loads-out",
+            str(loads_out),
+            "--penalties-out",
+            str(penalties_out),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    if penalties_out.exists():
+        with penalties_out.open("r", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        assert not any(r["Category"] == "DebugUnassigned" for r in rows)
+    else:
+        # No penalties at all → no file emitted
+        assert not penalties_out.exists()
+
+    with models_out.open("r", encoding="utf-8") as fh:
+        models_rows = list(csv.DictReader(fh))
+    assert models_rows and models_rows[0].get("n_DebugUnassigned") == "0"
+    assert "DebugUnassigned" not in (models_rows[0].get("penalties") or "")
+
+
 def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)

@@ -480,7 +480,7 @@ def test_effort_floor_skips_when_two_day_probe_fails(tmp_path: Path) -> None:
 
     assert varmap.get("effort_floor_feasible") is False
     assert varmap.get("effort_floor_hard_applied") is False
-    assert varmap.get("effort_floor_notes", {}).get("reason") == "no_eligible_people"
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "feasibility_probe_failed"
 
 
 def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> None:
@@ -501,8 +501,8 @@ def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> Non
     paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_auto")
     varmap = _load_varmap(paths["map"])
 
-    # Alex cannot satisfy the AUTO-day ≥2 rule, so he should be excluded from the floor.
-    assert varmap.get("effort_floor_eligible", []) == ["Blair"]
+    # AUTO days below the soft minimum still surface in diagnostics, but remain eligible under the soft rule.
+    assert varmap.get("effort_floor_eligible", []) == ["Alex", "Blair"]
     blocked = varmap.get("effort_floor_notes", {}).get("auto_day_blocked", {})
     assert "Alex" in blocked
     assert blocked["Alex"].get("W1:Tuesday", {}).get("total_task_count") == 1
