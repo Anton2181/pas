@@ -152,11 +152,13 @@ def read_varmap(path: Path):
 
     component_drop_by_cid = vm.get('component_drop_vars', {}) or {}
     component_drop_by_var = {}
+    drop_var_to_cid = {}
     for cid, var in component_drop_by_cid.items():
         if not var:
             continue
         label = x_to_label.get(var) or f"drop::{cid}"
         component_drop_by_var[var] = label
+        drop_var_to_cid[var] = cid
 
     penalty_maps = {
         'CooldownPRI': vm.get('vprev_pri_vars', {}),
@@ -179,7 +181,7 @@ def read_varmap(path: Path):
     }
     config = vm.get('config', {})
     penalty_weights = vm.get('penalty_weights_by_var', {})
-    return x_to_label, penalty_maps, config, penalty_weights
+    return x_to_label, penalty_maps, config, penalty_weights, drop_var_to_cid
 
 
 def load_components_info(path: Path):
@@ -273,7 +275,9 @@ def compute_fairness(schedule_pairs: List[Tuple[str,str]], metric: str,
     return (max(vals), sum(abs(v - mean) for v in vals), -min(vals)), loads
 
 # --------------------- Penalty activation decoding ---------------------
-def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]]):
+def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]],
+                   assigned_cids: Set[str] | None = None,
+                   drop_var_to_cid: Dict[str, str] | None = None):
     var_to_cat = {}
     var_to_label = {}
     for cat, m in penalty_maps.items():
@@ -285,6 +289,10 @@ def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]])
     unknown_true = []
     for v in true_vars:
         if v in var_to_cat:
+            if var_to_cat[v] == "DebugUnassigned" and assigned_cids and drop_var_to_cid:
+                cid = drop_var_to_cid.get(v)
+                if cid and cid in assigned_cids:
+                    continue
             activations.append((v, var_to_cat[v], var_to_label.get(v, "")))
         else:
             unknown_true.append(v)
@@ -305,7 +313,7 @@ def main():
         print("No models found in the provided file (no 'v ...' lines).", file=sys.stderr)
         sys.exit(1)
 
-    x_to_label, penalty_maps, config, penalty_weights = read_varmap(args.varmap)
+    x_to_label, penalty_maps, config, penalty_weights, drop_var_to_cid = read_varmap(args.varmap)
     comp_rows, comp_info = load_components_info(args.components)
     comp_week, comp_fams, manual_cids_from_input = extract_comp_meta(comp_rows)
     manual_components_from_input, manual_loads_by_person = compute_manual_loads(comp_rows, comp_info, args.metric)
@@ -321,8 +329,10 @@ def main():
 
     for idx, true_vars in enumerate(models_true_vars, start=1):
         pairs = decode_pairs(true_vars, x_to_label)
+        assigned_cids = set(manual_components_from_input)
+        assigned_cids.update(cid for cid, _ in pairs)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
-        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps)
+        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps, assigned_cids, drop_var_to_cid)
         penalty_summary = "; ".join(
             f"{cat}:{label}" if label else cat for _, cat, label in sorted(acts, key=lambda t: (t[1], t[0]))
         )
