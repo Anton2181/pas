@@ -1686,6 +1686,7 @@ def _encode(args):
 
     candidate_effort_total: Dict[str, int] = defaultdict(int)
     candidate_effort_auto: Dict[str, int] = defaultdict(int)
+    component_effort_units: Dict[str, int] = {}
     for r in comps:
         tc = max(1, int(r.task_count))
         is_manual_flag = bool(original_manual.get(r.cid, False))
@@ -1693,6 +1694,9 @@ def _encode(args):
             candidate_effort_total[p] += tc
             if not is_manual_flag:
                 candidate_effort_auto[p] += tc
+
+        effort_units = max(1, int(math.ceil(getattr(r, "total_effort", tc))))
+        component_effort_units[r.cid] = effort_units
 
     person_effort_terms: Dict[str, List[Tuple[int, str]]] = {}
     person_effort_caps: Dict[str, int] = {}
@@ -1785,36 +1789,59 @@ def _encode(args):
 
     # ---------- Effort floor (eligible people only) ----------
     effort_floor_vars: Dict[str, str] = {}
+    effort_floor_notes: Dict[str, int | str] = {}
+    effort_floor_feasible = True
+    effort_floor_hard_applied = False
     EFFORT_FLOOR_TARGET = int(CONFIG.get("EFFORT_FLOOR_TARGET", 0) or 0)
     EFFORT_FLOOR_HARD = bool(CONFIG.get("EFFORT_FLOOR_HARD", False))
     W_EFFORT_FLOOR = int(CONFIG.get("WEIGHTS", {}).get("W_EFFORT_FLOOR", 0))
     effort_floor_eligible: List[str] = []
+    eligible_terms: List[Tuple[str, List[Tuple[int, str]], int]] = []
     if EFFORT_FLOOR_TARGET > 0:
         for p, terms_p in person_effort_terms_effort.items():
             U_p = person_effort_caps_effort.get(p, 0)
             if U_p < EFFORT_FLOOR_TARGET:
                 continue
             effort_floor_eligible.append(p)
+            eligible_terms.append((p, terms_p, U_p))
 
-            under_floor = pb.new_var()
-            pb.add_ge(
-                terms_p + [(EFFORT_FLOOR_TARGET, under_floor)],
-                EFFORT_FLOOR_TARGET,
-                info={"kind": "effort_floor_soft", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
-            )
-            if W_EFFORT_FLOOR != 0:
-                penalties.append((W_EFFORT_FLOOR, under_floor))
-                effort_floor_vars[under_floor] = (
-                    f"effort_floor_under::person={p}::target={EFFORT_FLOOR_TARGET}::capacity={U_p}"
-                )
+        eligible_set = set(effort_floor_eligible)
+        effort_floor_supply = sum(
+            component_effort_units.get(cid, 0)
+            for cid in component_effort_units
+            if eligible_set.intersection(cand.get(cid, []))
+        )
+        effort_floor_demand = EFFORT_FLOOR_TARGET * len(effort_floor_eligible)
+        effort_floor_notes = {
+            "demand": effort_floor_demand,
+            "supply": effort_floor_supply,
+        }
+        if effort_floor_demand > effort_floor_supply:
+            effort_floor_feasible = False
+            effort_floor_notes["reason"] = "insufficient_global_effort"
 
-            if EFFORT_FLOOR_HARD:
+        if effort_floor_feasible:
+            for p, terms_p, U_p in eligible_terms:
+                under_floor = pb.new_var()
                 pb.add_ge(
-                    terms_p,
+                    terms_p + [(EFFORT_FLOOR_TARGET, under_floor)],
                     EFFORT_FLOOR_TARGET,
-                    relax_label=f"effort_floor_hard::{p}" if DEBUG_RELAX else None,
-                    info={"kind": "effort_floor_hard", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
+                    info={"kind": "effort_floor_soft", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
                 )
+                if W_EFFORT_FLOOR != 0:
+                    penalties.append((W_EFFORT_FLOOR, under_floor))
+                    effort_floor_vars[under_floor] = (
+                        f"effort_floor_under::person={p}::target={EFFORT_FLOOR_TARGET}::capacity={U_p}"
+                    )
+
+                if EFFORT_FLOOR_HARD:
+                    pb.add_ge(
+                        terms_p,
+                        EFFORT_FLOOR_TARGET,
+                        relax_label=f"effort_floor_hard::{p}" if DEBUG_RELAX else None,
+                        info={"kind": "effort_floor_hard", "person": p, "target": EFFORT_FLOOR_TARGET, "cap": U_p},
+                    )
+                    effort_floor_hard_applied = True
 
     # ---------- Per-person × family repeat limits (geometric overage) ----------
     repeat_limit_pri_vars: Dict[str, str] = {}
@@ -2066,6 +2093,9 @@ def _encode(args):
         "effort_floor_vars": effort_floor_vars,
         "effort_floor_target": EFFORT_FLOOR_TARGET,
         "effort_floor_hard": EFFORT_FLOOR_HARD,
+        "effort_floor_feasible": effort_floor_feasible,
+        "effort_floor_hard_applied": effort_floor_hard_applied,
+        "effort_floor_notes": effort_floor_notes,
         "effort_floor_eligible": sorted(effort_floor_eligible),
         "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
@@ -2098,6 +2128,14 @@ def _encode(args):
         )
     else:
         stats.append("Weight ladder: disabled (explicit WEIGHTS in use).")
+    if EFFORT_FLOOR_TARGET > 0:
+        feas_note = "ON" if effort_floor_feasible else "SKIPPED (insufficient supply)"
+        stats.append(
+            "Effort floor: "
+            f"target={EFFORT_FLOOR_TARGET}, hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, "
+            f"feasible={feas_note}, eligible_people={len(effort_floor_eligible)}, "
+            f"demand={effort_floor_notes.get('demand', 0)}, supply={effort_floor_notes.get('supply', 0)}"
+        )
     stats.extend([
         "Day rules:",
         "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",

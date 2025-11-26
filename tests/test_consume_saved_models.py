@@ -91,7 +91,7 @@ def test_debug_unassigned_penalty_counts(tmp_path: Path) -> None:
 def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
-        for i in range(1, 5)
+        for i in range(1, 9)
     ]
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {

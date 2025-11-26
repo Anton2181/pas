@@ -269,7 +269,7 @@ def test_fairness_availability_scaling(tmp_path: Path) -> None:
 def test_effort_floor_targets_only_eligible(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
-        for i in range(1, 5)
+        for i in range(1, 9)
     ] + [
         component_row(cid=f"CY{i}", week="Week 2", day="Wednesday", task_name=f"Casey Task {i}", candidates=["Casey"], effort=2.0)
         for i in range(1, 4)
@@ -297,7 +297,7 @@ def test_effort_floor_targets_only_eligible(tmp_path: Path) -> None:
 def test_effort_floor_hard_relax_label(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)
-        for i in range(1, 5)
+        for i in range(1, 9)
     ]
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {
@@ -313,6 +313,28 @@ def test_effort_floor_hard_relax_label(tmp_path: Path) -> None:
 
     selectors = varmap.get("selectors", {})
     assert any("effort_floor_hard::Alex" in label for label in selectors)
+
+
+def test_effort_floor_hard_skips_when_infeasible(tmp_path: Path) -> None:
+    comps = [
+        component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task 1", candidates=["Alex", "Blair", "Casey"]),
+        component_row(cid="C2", week="Week 1", day="Wednesday", task_name="Task 2", candidates=["Alex", "Blair", "Casey"]),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair"), backend_row("Casey")]
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 1,
+        "EFFORT_FLOOR_HARD": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_infeasible")
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("effort_floor_feasible") is False
+    assert varmap.get("effort_floor_hard_applied") is False
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "insufficient_global_effort"
 
 
 def test_pipeline_produces_assignments(tmp_path: Path) -> None:
