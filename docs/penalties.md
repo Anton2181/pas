@@ -39,6 +39,7 @@ This guide explains every penalty category that can appear in `penalties_activat
 ## Reading `penalties_activated.csv`
 
 Columns are derived from the selector label when possible:
+- `Weight` is the exact numeric weight from the objective for that selector.
 - `OverT`/`OverLimit` come from repeat ladders (`t=` and `limit=`). For cooldown ladders `OverT` is the ladder step.
 - `WeekFrom`/`WeekTo` are parsed from labels that contain `W<from>->W<to>` (cooldown and streak). Intra-week cooldowns omit these.
 - `AdjPairs` lists consecutive week pairs involving the same `(person,family)` where at least one assignment was AUTO; it helps explain why cooldown ladders grew.

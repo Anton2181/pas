@@ -94,6 +94,9 @@ DEFAULT_CONFIG = {
         # ordering with ``RATIO`` (each rung is ``RATIO``× the next). Inline
         # notes explain the intent, when the weight triggers, and a concrete
         # example of a violation that would pay the cost.
+        #   * W_AUTO_DAY_MIN – soft minimum of two tasks on AUTO days; activates
+        #     when a person receives fewer than two task_count units on a day that
+        #     includes at least one AUTO assignment.
         #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
         #     is intentionally left unassigned under debug relax mode; e.g., marking
         #     a hard-to-place component as dropped.
@@ -160,6 +163,7 @@ DEFAULT_CONFIG = {
         #     assignment counts.
         "ENABLED": True,
         "ORDER": [
+            "W_AUTO_DAY_MIN",
             "W_DEBUG_UNASSIGNED",
             "W4",
             "W4_DPR",
@@ -982,6 +986,7 @@ def _encode(args):
             return int(default)
         raise KeyError(f"Missing weight '{name}' in CONFIG['WEIGHTS']")
 
+    W_AUTO_DAY_MIN = weight("W_AUTO_DAY_MIN")
     W1_COOLDOWN = weight("W1_COOLDOWN")
     W1_REPEAT = weight("W1_REPEAT")
     W2_COOLDOWN = weight("W2_COOLDOWN")
@@ -1266,6 +1271,7 @@ def _encode(args):
     if DEBUG_ALLOW_UNASSIGNED and W_DEBUG_UNASSIGNED > 0:
         for cid, drop_var in component_drop_vars.items():
             penalties.append((W_DEBUG_UNASSIGNED, drop_var))
+    auto_day_min_vars: Dict[str, str] = {}
     two_day_soft_vars: Dict[str, str] = {}
 
     # -------------------- Sibling anti-dup (names-based exact match) --------------------
@@ -1388,13 +1394,17 @@ def _encode(args):
                           M=1,
                           info={"kind":"exclusion","week":str(w),"day":d,"person":p,"a":a,"b":b})
 
-    # -------------------- HARD: AUTO day rule (weighted by Task Count) --------------------
+    # -------------------- SOFT: AUTO day rule (weighted by Task Count) --------------------
     for key, X_all in person_day_X_all.items():
         p, w, d = key
         A = A_map.get(key)
         if not X_all or A is None:
             continue
-        pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A)], 0)
+
+        z = pb.new_var()
+        pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A), (2, z)], 0)
+        penalties.append((W_AUTO_DAY_MIN, z))
+        auto_day_min_vars[z] = f"auto_day_min::{p}::W{w}::{d or 'UNSPEC'}"
 
     # -------------------- Prev-week cooldown (aggregated per family) --------------------
     fam_index: Dict[Tuple[int, str, str], Dict[str, List[str]]] = defaultdict(lambda: {"any":[], "pri":[], "auto":[]})
@@ -2185,6 +2195,8 @@ def _encode(args):
         raise ValueError(f"Duplicate penalties detected: {dup_descriptions}")
 
     pb.set_objective(penalties)
+
+    penalty_weights_by_var = {v: w for w, v in penalties}
     pb.dump(args.out)
 
     # Map / debug
@@ -2204,6 +2216,7 @@ def _encode(args):
         "selectors_by_var":          selectors_by_var,
         "manual_components":         {r.cid: bool(is_manual.get(r.cid, False)) for r in comps},
         "manual_components_original":{r.cid: bool(original_manual.get(r.cid, False)) for r in comps},
+        "auto_day_min_vars":         auto_day_min_vars,
         "both_fallback_vars":        both_fallback_vars,
         "vprev_streak_vars":         vprev_streak_vars,
         "vprev_nonconsec_vars":      {},
@@ -2238,6 +2251,7 @@ def _encode(args):
         "auto_soften_families": auto_soften_notes,
         "fairness_targets": fairness_targets,
         "fairness_availability": fairness_target_notes,
+        "penalty_weights_by_var": penalty_weights_by_var,
         "config": CONFIG
 
     }, ensure_ascii=False, indent=2), encoding="utf-8")
