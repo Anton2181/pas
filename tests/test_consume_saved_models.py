@@ -172,6 +172,85 @@ def test_manual_assignments_not_counted_as_unassigned(tmp_path: Path) -> None:
     assert "DebugUnassigned" not in (models_rows[0].get("penalties") or "")
 
 
+def test_debug_relax_weights_are_recorded(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C3",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Task Relax",
+            candidates=["Alex"],
+        )
+    ]
+    backend = [backend_row("Alex")]
+    overrides = {
+        "DEBUG_RELAX": True,
+        "W_HARD": 123,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path, components=comps, backend=backend, overrides=overrides, prefix="consume_relax_weight"
+    )
+    varmap = json.loads(paths["map"].read_text(encoding="utf-8"))
+    relax_vars = varmap.get("selectors_by_var", {})
+    assert relax_vars, "Expected debug relax selectors to be present"
+    relax_var = next(iter(relax_vars.keys()))
+
+    models_txt = tmp_path / "models_relax_weight.txt"
+    models_txt.write_text(f"v {relax_var}\n", encoding="utf-8")
+
+    penalties_out = tmp_path / "penalties_relax_weight.csv"
+    models_out = tmp_path / "models_summary_relax_weight.csv"
+    assigned_out = tmp_path / "assigned_relax_weight.csv"
+    loads_out = tmp_path / "loads_relax_weight.csv"
+    bars_out = tmp_path / "bars_relax_weight.png"
+    lorenz_out = tmp_path / "lorenz_relax_weight.png"
+
+    env = os.environ.copy()
+    env.setdefault("MPLBACKEND", "Agg")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(ROOT / "consume_saved_models.py"),
+            "--models",
+            str(models_txt),
+            "--varmap",
+            str(paths["map"]),
+            "--components",
+            str(paths["components"]),
+            "--metric",
+            "effort",
+            "--plots-bars",
+            str(bars_out),
+            "--plots-lorenz",
+            str(lorenz_out),
+            "--assigned-out",
+            str(assigned_out),
+            "--models-out",
+            str(models_out),
+            "--loads-out",
+            str(loads_out),
+            "--penalties-out",
+            str(penalties_out),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    with penalties_out.open("r", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert any(r["Category"] == "DebugRelax" and r["Var"] == relax_var and r["Weight"] == "123" for r in rows)
+
+    with models_out.open("r", encoding="utf-8") as fh:
+        models_rows = list(csv.DictReader(fh))
+    assert models_rows and models_rows[0].get("n_DebugRelax") == "1"
+    assert "DebugRelax" in (models_rows[0].get("penalties") or "")
+
+
 def test_effort_floor_penalty_counts(tmp_path: Path) -> None:
     comps = [
         component_row(cid=f"AX{i}", week="Week 1", day="Tuesday", task_name=f"Task {i}", candidates=["Alex", "Blair"], effort=2.0)

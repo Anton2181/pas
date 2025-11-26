@@ -2214,6 +2214,10 @@ def _encode(args):
     }
 
     penalty_weights = {v: int(w) for w, v in penalties}
+    if CONFIG.get("DEBUG_RELAX"):
+        W_HARD = int(CONFIG.get("W_HARD", 0))
+        for var in selectors_by_var:
+            penalty_weights.setdefault(var, W_HARD)
 
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
