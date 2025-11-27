@@ -417,7 +417,10 @@ def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {
         "DEBUG_ALLOW_UNASSIGNED": True,
-        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 999},
+        "WEIGHTS": {
+            "W_DEBUG_UNASSIGNED_PRIORITY": 999,
+            "W_DEBUG_UNASSIGNED_NON_PRIORITY": 999,
+        },
         "AUTO_SOFTEN": {"ENABLED": False},
         "BANNED_SIBLING_PAIRS": [],
         "BANNED_SAME_DAY_PAIRS": [],

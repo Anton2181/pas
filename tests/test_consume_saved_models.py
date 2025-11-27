@@ -27,7 +27,10 @@ def test_debug_unassigned_penalty_counts(tmp_path: Path) -> None:
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {
         "DEBUG_ALLOW_UNASSIGNED": True,
-        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 42},
+        "WEIGHTS": {
+            "W_DEBUG_UNASSIGNED_PRIORITY": 42,
+            "W_DEBUG_UNASSIGNED_NON_PRIORITY": 42,
+        },
         "AUTO_SOFTEN": {"ENABLED": False},
         "BANNED_SIBLING_PAIRS": [],
         "BANNED_SAME_DAY_PAIRS": [],
@@ -104,7 +107,10 @@ def test_manual_assignments_not_counted_as_unassigned(tmp_path: Path) -> None:
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {
         "DEBUG_ALLOW_UNASSIGNED": True,
-        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 42},
+        "WEIGHTS": {
+            "W_DEBUG_UNASSIGNED_PRIORITY": 42,
+            "W_DEBUG_UNASSIGNED_NON_PRIORITY": 42,
+        },
         "AUTO_SOFTEN": {"ENABLED": False},
         "BANNED_SIBLING_PAIRS": [],
         "BANNED_SAME_DAY_PAIRS": [],

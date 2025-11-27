@@ -94,9 +94,11 @@ DEFAULT_CONFIG = {
         # ordering with ``RATIO`` (each rung is ``RATIO``× the next). Inline
         # notes explain the intent, when the weight triggers, and a concrete
         # example of a violation that would pay the cost.
-        #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
-        #     is intentionally left unassigned under debug relax mode; e.g., marking
-        #     a hard-to-place component as dropped.
+        #   * W_DEBUG_UNASSIGNED_PRIORITY / _NON_PRIORITY – debug-only drop
+        #     selectors; activate when a task is intentionally left unassigned
+        #     under debug relax mode; e.g., marking a hard-to-place component as
+        #     dropped. Priority tasks can be weighted separately from non-priority
+        #     tasks.
         #   * W4 – soft cost for using the “Both” expansion to assign a manual pair;
         #     activates when a person is auto-selected for a “Both” link; e.g.,
         #     filling both halves of a manual repeat in one step.
@@ -164,7 +166,8 @@ DEFAULT_CONFIG = {
         #     assignment counts.
         "ENABLED": True,
         "ORDER": [
-            "W_DEBUG_UNASSIGNED",
+            "W_DEBUG_UNASSIGNED_PRIORITY",
+            "W_DEBUG_UNASSIGNED_NON_PRIORITY",
             "W4",
             "W4_DPR",
             "W_EFFORT_FLOOR",
@@ -197,7 +200,8 @@ DEFAULT_CONFIG = {
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- Debug helper (other weights are derived from the ladder) ---
-        "W_DEBUG_UNASSIGNED": 1_000_000_000_000_000_000,
+        "W_DEBUG_UNASSIGNED_PRIORITY": 1_000_000_000_000_000_000,
+        "W_DEBUG_UNASSIGNED_NON_PRIORITY": 1_000_000_000_000_000_000,
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
@@ -976,7 +980,12 @@ def _encode(args):
 
     PRIORITY_COVERAGE_MODE = str(CONFIG["PRIORITY_COVERAGE_MODE"]).lower()
     W = CONFIG["WEIGHTS"]
-    W_DEBUG_UNASSIGNED = int(W.get("W_DEBUG_UNASSIGNED", 0))
+    W_DEBUG_UNASSIGNED_PRIORITY = int(
+        W.get("W_DEBUG_UNASSIGNED_PRIORITY", W.get("W_DEBUG_UNASSIGNED", 0))
+    )
+    W_DEBUG_UNASSIGNED_NON_PRIORITY = int(
+        W.get("W_DEBUG_UNASSIGNED_NON_PRIORITY", W.get("W_DEBUG_UNASSIGNED", 0))
+    )
 
     def weight(name: str, *, default: int | None = None) -> int:
         if name in W:
@@ -1276,11 +1285,18 @@ def _encode(args):
                   info={"kind":"both_move_link","A":A,"B":B,"person":P})
 
     penalties: List[Tuple[int, str]] = []
-    if DEBUG_ALLOW_UNASSIGNED and W_DEBUG_UNASSIGNED > 0:
+    if DEBUG_ALLOW_UNASSIGNED:
         for cid, (drop_var, manual_orig) in component_drop_vars.items():
             if manual_orig:
                 continue
-            penalties.append((W_DEBUG_UNASSIGNED, drop_var))
+            r = comp_by_cid[cid]
+            weight = (
+                W_DEBUG_UNASSIGNED_PRIORITY
+                if r.priority
+                else W_DEBUG_UNASSIGNED_NON_PRIORITY
+            )
+            if weight > 0:
+                penalties.append((weight, drop_var))
     two_day_soft_vars: Dict[str, str] = {}
 
     # -------------------- Sibling anti-dup (names-based exact match) --------------------
@@ -2301,7 +2317,9 @@ def _encode(args):
         f"Components: {len(comps)}",
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
         f"Allow unassigned components: {'ON' if DEBUG_ALLOW_UNASSIGNED else 'OFF'} "
-        f"(W_DEBUG_UNASSIGNED={W_DEBUG_UNASSIGNED}, drop_vars={len(component_drop_vars)})",
+        f"(W_DEBUG_UNASSIGNED_PRIORITY={W_DEBUG_UNASSIGNED_PRIORITY}, "
+        f"W_DEBUG_UNASSIGNED_NON_PRIORITY={W_DEBUG_UNASSIGNED_NON_PRIORITY}, "
+        f"drop_vars={len(component_drop_vars)})",
     ]
     ladder_cfg = CONFIG.get("WEIGHT_LADDER", {})
     ladder_order = ladder_cfg.get("ORDER") or []
