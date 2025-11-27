@@ -1096,6 +1096,16 @@ def _encode(args):
         if r.assigned_flag and r.assigned_to
     }
 
+    def is_manual_assignment(cid: str, person: str) -> bool:
+        """Return True when the component is fixed manually to ``person``.
+
+        Some constraints (e.g., sibling anti-duplication or banned same-day) should
+        not fire on combinations that are already fully manual. This helper keeps
+        the check consistent and readable.
+        """
+
+        return bool(original_manual.get(cid, False) and manual_assignee.get(cid) == person)
+
     # Sibling groups by literal Names (used for preferred pairs / manual links)
     sib_groups_names: Dict[Tuple[str, str, Tuple[str, ...]], List[CompRow]] = defaultdict(list)
     for r in comps:
@@ -1309,6 +1319,9 @@ def _encode(args):
         for p in group_people:
             terms = [(1, xv(cid, p)) for cid in cids if p in cand.get(cid, [])]
             if len(terms) > 1:
+                # Skip conflicts that are already locked in manually for this person.
+                if all(is_manual_assignment(cid, p) for cid in cids if p in cand.get(cid, [])):
+                    continue
                 label = f"sibling_no_double::names::{'+'.join(cids)}::{p}"
                 pb.add_le(terms, 1,
                           relax_label=(label if DEBUG_RELAX else None),
@@ -1323,6 +1336,8 @@ def _encode(args):
         for p in group_people:
             terms = [(1, xv(cid, p)) for cid in cids if p in cand.get(cid, [])]
             if len(terms) > 1:
+                if all(is_manual_assignment(cid, p) for cid in cids if p in cand.get(cid, [])):
+                    continue
                 label = f"sibling_no_double::family::{'+'.join(cids)}::{p}"
                 pb.add_le(terms, 1,
                           relax_label=(label if DEBUG_RELAX else None),
@@ -1361,6 +1376,15 @@ def _encode(args):
                     Dv = D_map.get((v, w, d))
                     if not Du or not Dv:
                         continue
+
+                    # Respect fully manual schedules: if both people are already fixed
+                    # to that day with no AUTO candidates, allow the manual decision
+                    # to stand instead of introducing a relaxable violation.
+                    Au = A_map.get((u, w, d))
+                    Av = A_map.get((v, w, d))
+                    if Au is None and Av is None:
+                        continue
+
                     label = f"banned_same_day::{d}::W{w}::{u}|{v}"
                     pb.add_le([(1, Du), (1, Dv)], 1,
                               relax_label=(label if DEBUG_RELAX else None),
