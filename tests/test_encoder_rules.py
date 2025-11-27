@@ -270,6 +270,47 @@ def test_manual_still_blocks_auto_conflicts(tmp_path: Path) -> None:
     labels = list(varmap["selectors_by_var"].values())
     assert any("exclusion::W13::Tuesday::Alex::C80::C81" in label for label in labels)
 
+
+def test_manual_siblings_allow_duplicate_person_without_penalty(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C136",
+            week="Week 14",
+            day="Tuesday",
+            task_name="Prep/Assist",
+            candidates=["Alex"],
+            sibling_key="Fam",
+            assigned=True,
+            assigned_to="Alex",
+        ),
+        component_row(
+            cid="C221",
+            week="Week 14",
+            day="Tuesday",
+            task_name="Take Care",
+            candidates=["Alex"],
+            sibling_key="Fam",
+            assigned=True,
+            assigned_to="Alex",
+        ),
+    ]
+
+    backend = [backend_row("Alex")]
+
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "DEBUG_RELAX": True,
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_dup")
+    varmap = _load_varmap(paths["map"])
+
+    labels = list(varmap["selectors_by_var"].values())
+    assert not any("sibling_no_double" in label for label in labels)
+
+
 def test_repeat_penalty_skips_manual_only(tmp_path: Path) -> None:
     comps = [
         component_row(

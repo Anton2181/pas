@@ -1339,13 +1339,19 @@ def _encode(args):
         if len(items) <= 1: continue
         cids = [r.cid for r in items]
         group_people = set().union(*(cand.get(cid, []) for cid in cids))
+        group_people |= {manual_assignee[cid] for cid in cids if manual_assignee.get(cid)}
         for p in group_people:
-            terms = [(1, xv(cid, p)) for cid in cids if p in cand.get(cid, [])]
-            if len(terms) > 1:
+            manual_terms = [xv(cid, p) for cid in cids if manual_assignee.get(cid) == p]
+            auto_terms = [(1, xv(cid, p)) for cid in cids if (manual_assignee.get(cid) != p and p in cand.get(cid, []))]
+
+            manual_count = len(manual_terms)
+            limit = max(0, 1 - manual_count)
+
+            if auto_terms and limit < len(auto_terms):
                 label = f"sibling_no_double::names::{'+'.join(cids)}::{p}"
-                pb.add_le(terms, 1,
+                pb.add_le(auto_terms, limit,
                           relax_label=(label if DEBUG_RELAX else None),
-                          M=len(terms),
+                          M=len(auto_terms),
                           info={"kind":"sibling_no_double_names","group_cids":";".join(cids),"person":p})
 
     # -------------------- Sibling anti-dup (family-based PER FAMILY TOKEN) --------------------
@@ -1353,13 +1359,19 @@ def _encode(args):
         if len(items) <= 1: continue
         cids = [r.cid for r in items]
         group_people = set().union(*(cand.get(cid, []) for cid in cids))
+        group_people |= {manual_assignee[cid] for cid in cids if manual_assignee.get(cid)}
         for p in group_people:
-            terms = [(1, xv(cid, p)) for cid in cids if p in cand.get(cid, [])]
-            if len(terms) > 1:
+            manual_terms = [xv(cid, p) for cid in cids if manual_assignee.get(cid) == p]
+            auto_terms = [(1, xv(cid, p)) for cid in cids if (manual_assignee.get(cid) != p and p in cand.get(cid, []))]
+
+            manual_count = len(manual_terms)
+            limit = max(0, 1 - manual_count)
+
+            if auto_terms and limit < len(auto_terms):
                 label = f"sibling_no_double::family::{'+'.join(cids)}::{p}"
-                pb.add_le(terms, 1,
+                pb.add_le(auto_terms, limit,
                           relax_label=(label if DEBUG_RELAX else None),
-                          M=len(terms),
+                          M=len(auto_terms),
                           info={"kind":"sibling_no_double_family","group_cids":";".join(cids),"person":p})
         # Banned sibling pairs inside this family-token group
         if BANNED_SIBLING_PAIRS:
