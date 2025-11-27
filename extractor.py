@@ -565,6 +565,28 @@ def exclusion_violation(
             return True
     return False
 
+def apply_header_assignments(
+    tasks: List["Task"],
+    members: List[str],
+    violates_exclusions,
+    record_day_assign,
+    logger: "DecisionLogger",
+):
+    for t in tasks:
+        assignee_name = trim(getattr(t, "header_assignee", ""))
+        if not assignee_name:
+            continue
+        try:
+            m_idx = members.index(assignee_name)
+        except ValueError:
+            logger.log("manual", t, assignee_name, "Header assignee not found", ""); continue
+        if (m_idx not in getattr(t, "available", [])) and (not getattr(t, "everyone_eligible", False)):
+            logger.log("manual", t, assignee_name, "Header assignee not in pool", ""); continue
+        if violates_exclusions(t, m_idx):
+            logger.log("manual", t, assignee_name, "Header assignment blocked by exclusion", ""); continue
+        t.assigned_to = m_idx; record_day_assign(t, m_idx)
+        logger.log("manual", t, assignee_name, "Assigned (header)", "Applied before clamp")
+
 # ------------------------ Helpers -------------------------------------
 
 def _existing_component_ids(comp_map: Dict[str, List[int]], tasks: List[Task]) -> Set[str]:
@@ -876,16 +898,7 @@ def main():
         if s and task.name in s: s.remove(task.name)
 
     # HEADER ASSIGNMENTS
-    for t in tasks:
-        assignee_name = trim(getattr(t, "header_assignee", ""))
-        if not assignee_name: continue
-        try: m_idx = members.index(assignee_name)
-        except ValueError:
-            logger.log("manual", t, assignee_name, "Header assignee not found", ""); continue
-        if violates_exclusions(t, m_idx):
-            logger.log("manual", t, assignee_name, "Header assignment blocked by exclusion", ""); continue
-        t.assigned_to = m_idx; record_day_assign(t, m_idx)
-        logger.log("manual", t, assignee_name, "Assigned (header)", "Applied before clamp")
+    apply_header_assignments(tasks, members, violates_exclusions, record_day_assign, logger)
 
     # CLAMP + NORMALIZE
     clamp_repeats_with_exceptions(tasks, cfg.roles_map, members, cfg.exceptions, EXCEPTION_REPEAT_LIMIT, logger)
