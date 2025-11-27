@@ -340,6 +340,7 @@ def main():
         sys.exit(1)
 
     x_to_label, penalty_maps, config, penalty_weights = read_varmap(args.varmap)
+    penalty_totals = {cat: len(m) for cat, m in penalty_maps.items()}
     comp_rows, comp_info = load_components_info(args.components)
     comp_week, comp_fams, manual_cids_from_input = extract_comp_meta(comp_rows)
     manual_components_from_input, manual_loads_by_person = compute_manual_loads(comp_rows, comp_info, args.metric)
@@ -383,6 +384,7 @@ def main():
             "n_RepeatOverPRI": str(counts.get("RepeatOverPRI", 0)),
             "n_RepeatOverNON": str(counts.get("RepeatOverNON", 0)),
             "n_BothFallback": str(counts.get("BothFallback", 0)),
+            "n_BothFallbackTotal": str(penalty_totals.get("BothFallback", 0)),
             "n_PreferredMiss": str(counts.get("PreferredMiss", 0)),
             "n_PriorityCoverage": str(counts.get("PriorityCoverage", 0)),
             "n_OneTaskDay": str(counts.get("OneTaskDay", 0)),
@@ -408,7 +410,7 @@ def main():
             "idx","objective","max_load","imbalance","min_load","num_assignments",
             "n_CooldownPRI","n_CooldownNON","n_CooldownStreak","n_CooldownNonConsec",
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
-            "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
+            "n_BothFallback","n_BothFallbackTotal","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
             "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor","n_AutoDayMin","n_AutoDayMinSunday",
             "n_DebugRelax","n_DebugUnassigned","n_UnknownPenalty","penalties"  # <-- NEW columns
         ])
@@ -597,6 +599,13 @@ def main():
 
         print(f"Wrote penalty activations → {args.penalties_out}")
         print(f"Wrote cooldown debug → {args.cooldown_debug_out}")
+
+    both_total = penalty_totals.get("BothFallback", 0)
+    if both_total:
+        activated = best_penalty_counts.get("BothFallback", 0)
+        print(f"[info] Both fallback selectors encoded: {both_total}; activated in chosen model: {activated}")
+    else:
+        print("[info] No Both fallback selectors were encoded for this input.")
 
     # Pretty print best model’s weight-impacting decisions
     print("\n=== Weight-impacting decisions in chosen model ===")

@@ -504,3 +504,85 @@ def test_penalties_include_weights(tmp_path: Path) -> None:
     assert row.get("Weight") == str(expected_weight)
     assert penalty_weights.get(target_var) == expected_weight
 
+
+def test_both_fallback_counts_are_reported(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Task Both",
+            candidates=["Alex", "Blair"],
+        )
+    ]
+    comps[0]["Role-Filtered Candidates"] = "Blair"
+
+    backend = [backend_row("Alex", both=True), backend_row("Blair")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path, components=comps, backend=backend, overrides=overrides, prefix="consume_both"
+    )
+    varmap = json.loads(paths["map"].read_text(encoding="utf-8"))
+    x_alex = next(k for k, v in varmap["x_to_label"].items() if v == "x::C1::Alex")
+
+    models_txt = tmp_path / "models_both.txt"
+    models_txt.write_text(f"v {x_alex}\n", encoding="utf-8")
+
+    penalties_out = tmp_path / "penalties_both.csv"
+    models_out = tmp_path / "models_summary_both.csv"
+    assigned_out = tmp_path / "assigned_both.csv"
+    loads_out = tmp_path / "loads_both.csv"
+    bars_out = tmp_path / "bars_both.png"
+    lorenz_out = tmp_path / "lorenz_both.png"
+
+    env = os.environ.copy()
+    env.setdefault("MPLBACKEND", "Agg")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(ROOT / "consume_saved_models.py"),
+            "--models",
+            str(models_txt),
+            "--varmap",
+            str(paths["map"]),
+            "--components",
+            str(paths["components"]),
+            "--metric",
+            "effort",
+            "--plots-bars",
+            str(bars_out),
+            "--plots-lorenz",
+            str(lorenz_out),
+            "--assigned-out",
+            str(assigned_out),
+            "--models-out",
+            str(models_out),
+            "--loads-out",
+            str(loads_out),
+            "--penalties-out",
+            str(penalties_out),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    both_total = len(varmap.get("both_fallback_vars", {}))
+    assert both_total >= 1
+
+    with models_out.open("r", encoding="utf-8") as fh:
+        models_rows = list(csv.DictReader(fh))
+
+    assert models_rows[0].get("n_BothFallbackTotal") == str(both_total)
+    assert models_rows[0].get("n_BothFallback") == "1"
+
+    with penalties_out.open("r", encoding="utf-8") as fh:
+        penalties_rows = list(csv.DictReader(fh))
+
+    assert any(r["Category"] == "BothFallback" for r in penalties_rows)
+
