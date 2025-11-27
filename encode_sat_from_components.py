@@ -1121,6 +1121,11 @@ def _encode(args):
         def activate_move(src: CompRow, dst: CompRow):
             if not src.assigned_to:
                 return
+            # Skip links when the destination component is already manual – there is
+            # no room to "move" the person, and the link would only introduce
+            # unsatisfiable exactly-one constraints for the original assignees.
+            if dst.assigned_flag and dst.assigned_to:
+                return
             person = src.assigned_to[0]
             if person not in both_people:
                 return

@@ -157,6 +157,48 @@ def test_manual_components_skip_debug_drop_vars(tmp_path: Path) -> None:
     assert varmap["component_drop_vars"] == {}
 
 
+def test_manual_siblings_do_not_add_move_links(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C80",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Yulia"],
+            sibling_key="ADV",
+            assigned=True,
+            assigned_to="Yulia",
+        ),
+        component_row(
+            cid="C81",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Natalia"],
+            sibling_key="ADV",
+            assigned=True,
+            assigned_to="Natalia",
+        ),
+    ]
+
+    backend = [backend_row("Yulia", both=True), backend_row("Natalia")]
+
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_moves")
+    varmap = _load_varmap(paths["map"])
+
+    labels = list(varmap["selectors_by_var"].values())
+    assert not any("both_move_link" in label for label in labels)
+    # Ensure we did not expand the destination candidates with the source person.
+    assert "x::C81::Yulia" not in varmap["x_to_label"].values()
+
+
 def test_repeat_penalty_skips_manual_only(tmp_path: Path) -> None:
     comps = [
         component_row(
