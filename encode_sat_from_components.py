@@ -1399,13 +1399,6 @@ def _encode(args):
                 if p not in cand.get(a, []) or p not in cand.get(b, []):
                     continue
 
-                # If a component was manually assigned to this person in the input,
-                # honor that choice by skipping the exclusion constraint. This
-                # prevents manually fixed pairs from forcing infeasibility while
-                # still enforcing exclusions for auto-assigned slots.
-                if manual_assignee.get(a) == p or manual_assignee.get(b) == p:
-                    continue
-
                 pb.add_le([(1, xv(a, p)), (1, xv(b, p))], 1,
                           relax_label=(f"exclusion::W{w}::{d}::{p}::{a}::{b}" if DEBUG_RELAX else None),
                           M=1,
