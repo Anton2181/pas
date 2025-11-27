@@ -519,6 +519,7 @@ def test_both_fallback_counts_are_reported(tmp_path: Path) -> None:
             day="Tuesday",
             task_name="Task Both",
             candidates=["Alex", "Blair"],
+            both_candidates=["Alex"],
         )
     ]
     comps[0]["Role-Filtered Candidates"] = "Blair"

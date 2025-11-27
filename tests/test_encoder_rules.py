@@ -1031,6 +1031,7 @@ def test_both_fallback_penalizes_extra_pool_access(tmp_path: Path) -> None:
         day="Tuesday",
         task_name="Dual role",
         candidates=["Alex", "Taylor"],
+        both_candidates=["Alex"],
     )
     # Restrict the role-filtered pool to a different person while keeping the wider pool.
     comp["Role-Filtered Candidates"] = "Taylor"

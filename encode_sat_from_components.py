@@ -1156,12 +1156,11 @@ def _encode(args):
     both_penalty_mark: Set[Tuple[str,str]] = set()
 
     for r in comps:
-        inferred = (base_all[r.cid] - base_role[r.cid]) & both_people
-        add_both = ((base_both[r.cid] if base_both else set()) | inferred) & both_people
+        add_both = (base_both.get(r.cid, set()) & both_people) if both_people else set(base_both.get(r.cid, set()))
         if add_both:
             for p in add_both:
                 expanded_role[r.cid].add(p)
-                if role_restricted.get(r.cid, False) and p not in base_role[r.cid]:
+                if role_restricted.get(r.cid, False):
                     both_penalty_mark.add((r.cid, p))
 
     # Sibling handling for manual “Both” (names-based pairing)
@@ -1180,13 +1179,13 @@ def _encode(args):
             if dst.assigned_flag and dst.assigned_to:
                 return
             person = src.assigned_to[0]
-            if person not in both_people:
+            if person not in base_both.get(src.cid, set()) and person not in base_both.get(dst.cid, set()):
                 return
             expanded_role[src.cid].update(expanded_role[dst.cid])
             expanded_role[dst.cid].update(expanded_role[src.cid])
             expanded_role[src.cid].add(person)
             expanded_role[dst.cid].add(person)
-            if role_restricted.get(dst.cid, False) and person not in base_role[dst.cid]:
+            if role_restricted.get(dst.cid, False) and person not in base_role[dst.cid] and person in base_both.get(dst.cid, set()):
                 both_penalty_mark.add((dst.cid, person))
             sibling_move_links.append((src.cid, dst.cid, person))
 
