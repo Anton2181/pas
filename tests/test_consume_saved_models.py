@@ -185,7 +185,7 @@ def test_debug_relax_weights_are_recorded(tmp_path: Path) -> None:
             candidates=["Alex"],
         )
     ]
-    backend = [backend_row("Alex")]
+    backend = [backend_row("Alex", top_task="Conducting the lesson - Wednesday")]
     overrides = {
         "DEBUG_RELAX": True,
         "W_HARD": 123,
@@ -264,7 +264,7 @@ def test_unknown_penalties_surface_with_weights(tmp_path: Path) -> None:
             candidates=["Alex"],
         )
     ]
-    backend = [backend_row("Alex")]
+    backend = [backend_row("Alex", top_task="Conducting the lesson - Wednesday")]
     overrides = {
         "AUTO_SOFTEN": {"ENABLED": False},
         "BANNED_SIBLING_PAIRS": [],
@@ -585,4 +585,87 @@ def test_both_fallback_counts_are_reported(tmp_path: Path) -> None:
         penalties_rows = list(csv.DictReader(fh))
 
     assert any(r["Category"] == "BothFallback" for r in penalties_rows)
+
+
+def test_repeat_over_geo_penalizes_each_overage_step(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid=f"C{i}",
+            week=f"Week {i}",
+            day="Wednesday",
+            task_name="Conducting the lesson - Wednesday",
+            candidates=["Alex"],
+            sibling_key="Conducting the lesson - Wednesday",
+            priority=True,
+        )
+        for i in range(1, 4)
+    ]
+    backend = [backend_row("Alex", top_task="Conducting the lesson - Wednesday")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "REPEAT_LIMIT": {"PRI": 1, "NON": 1},
+        "REPEAT_LIMIT_HARD": {"PRI": False, "NON": False},
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path, components=comps, backend=backend, overrides=overrides, prefix="repeat_over"
+    )
+    varmap = json.loads(paths["map"].read_text(encoding="utf-8"))
+
+    x_vars = [
+        next(k for k, v in varmap["x_to_label"].items() if v == f"x::{cid}::Alex")
+        for cid in ["C1", "C2", "C3"]
+    ]
+    repeat_vars = list(varmap.get("repeat_limit_pri_vars", {}).keys())
+
+    models_txt = tmp_path / "models_repeat.txt"
+    models_txt.write_text("v " + " ".join(x_vars + repeat_vars) + "\n", encoding="utf-8")
+
+    penalties_out = tmp_path / "penalties_repeat.csv"
+    models_out = tmp_path / "models_summary_repeat.csv"
+    assigned_out = tmp_path / "assigned_repeat.csv"
+    loads_out = tmp_path / "loads_repeat.csv"
+    bars_out = tmp_path / "bars_repeat.png"
+    lorenz_out = tmp_path / "lorenz_repeat.png"
+
+    env = os.environ.copy()
+    env.setdefault("MPLBACKEND", "Agg")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(ROOT / "consume_saved_models.py"),
+            "--models",
+            str(models_txt),
+            "--varmap",
+            str(paths["map"]),
+            "--components",
+            str(paths["components"]),
+            "--metric",
+            "effort",
+            "--plots-bars",
+            str(bars_out),
+            "--plots-lorenz",
+            str(lorenz_out),
+            "--assigned-out",
+            str(assigned_out),
+            "--models-out",
+            str(models_out),
+            "--loads-out",
+            str(loads_out),
+            "--penalties-out",
+            str(penalties_out),
+        ],
+        cwd=ROOT,
+        env=env,
+    )
+
+    rows = list(csv.DictReader(penalties_out.open("r", encoding="utf-8")))
+    repeat_rows = [r for r in rows if r["Label"].startswith("repeat_over_geo::PRI::person=Alex")]
+    labels = {r["Label"] for r in repeat_rows}
+
+    assert any("::t=2::limit=1" in label for label in labels)
+    assert any("::t=3::limit=1" in label for label in labels)
 
