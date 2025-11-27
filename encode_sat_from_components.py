@@ -42,8 +42,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 # =============== CONFIG (flags + weights together) ====================
 DEFAULT_CONFIG = {
     # Debug / relax selectors
-    "DEBUG_RELAX": True,
-    "DEBUG_ALLOW_UNASSIGNED": False,
+    "DEBUG_RELAX": False,
+    "DEBUG_ALLOW_UNASSIGNED": True,
     "W_HARD": 1_000_000_000_000_000_000_000,  # ≥ W1
 
     # Minimum-effort encouragement
@@ -168,28 +168,30 @@ DEFAULT_CONFIG = {
         "ORDER": [
             "W_DEBUG_UNASSIGNED_PRIORITY",
             "W_DEBUG_UNASSIGNED_NON_PRIORITY",
-            "W4",
-            "W4_DPR",
             "W_EFFORT_FLOOR",
             "W_PRIORITY_MISS",
-            "W_TWO_DAY_SOFT",
             "W1_COOLDOWN_INTRA",
             "W2_COOLDOWN_INTRA",
+            "W_TWO_DAY_SOFT",
+            "W1_REPEAT",
+            "W2_REPEAT",
+            "W1_STREAK",
+            "W2_STREAK",
+            "W_AUTO_DAY",
+            "W1_COOLDOWN",
+            "W2_COOLDOWN",
+            "W4_DPR",
+
             "T1C",
             "T2C",
-            "W1_REPEAT",
-            "W1_STREAK",
-            "W1_COOLDOWN",
-            "W2_REPEAT",
-            "W2_STREAK",
-            "W2_COOLDOWN",
-            "W_SUNDAY_TWO_DAY",
-            "W_AUTO_DAY",
             "W_AUTO_DAY_SUNDAY",
+            "W_SUNDAY_TWO_DAY",
+            "W4",
+            "W6_OVER",
             "W3",
             "W5",
             "W6_UNDER",
-            "W6_OVER",
+
         ],
         "RATIO": 10,
         # Optional anchor for the strongest rung. If omitted, it defaults to
