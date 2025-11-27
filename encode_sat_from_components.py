@@ -1079,6 +1079,11 @@ def _encode(args):
 
     # Snapshot original manual flags (from extractor)
     original_manual: Dict[str, bool] = {r.cid: bool(r.assigned_flag) for r in comps}
+    manual_assignee: Dict[str, str] = {
+        r.cid: r.assigned_to[0]
+        for r in comps
+        if r.assigned_flag and r.assigned_to
+    }
 
     # Sibling groups by literal Names (used for preferred pairs / manual links)
     sib_groups_names: Dict[Tuple[str, str, Tuple[str, ...]], List[CompRow]] = defaultdict(list)
@@ -1397,6 +1402,14 @@ def _encode(args):
             for (a, b) in pairs:
                 if p not in cand.get(a, []) or p not in cand.get(b, []):
                     continue
+
+                # If a component was manually assigned to this person in the input,
+                # honor that choice by skipping the exclusion constraint. This
+                # prevents manually fixed pairs from forcing infeasibility while
+                # still enforcing exclusions for auto-assigned slots.
+                if manual_assignee.get(a) == p or manual_assignee.get(b) == p:
+                    continue
+
                 pb.add_le([(1, xv(a, p)), (1, xv(b, p))], 1,
                           relax_label=(f"exclusion::W{w}::{d}::{p}::{a}::{b}" if DEBUG_RELAX else None),
                           M=1,
