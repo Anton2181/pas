@@ -1146,6 +1146,10 @@ def _encode(args):
     base_all:  Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_all  if p]) for r in comps}
     base_both: Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_both if p]) for r in comps}
     expanded_role: Dict[str, Set[str]] = {r.cid: set(base_role[r.cid]) for r in comps}
+    role_restricted: Dict[str, bool] = {
+        r.cid: (base_role[r.cid] != base_all[r.cid]) or bool(base_both[r.cid])
+        for r in comps
+    }
     both_penalty_mark: Set[Tuple[str,str]] = set()
 
     for r in comps:
@@ -1154,7 +1158,8 @@ def _encode(args):
         if add_both:
             for p in add_both:
                 expanded_role[r.cid].add(p)
-                both_penalty_mark.add((r.cid, p))
+                if role_restricted.get(r.cid, False):
+                    both_penalty_mark.add((r.cid, p))
 
     # Sibling handling for manual “Both” (names-based pairing)
     sibling_move_links: List[Tuple[str,str,str]] = []
@@ -1178,7 +1183,8 @@ def _encode(args):
             expanded_role[dst.cid].update(expanded_role[src.cid])
             expanded_role[src.cid].add(person)
             expanded_role[dst.cid].add(person)
-            both_penalty_mark.add((dst.cid, person))
+            if role_restricted.get(dst.cid, False):
+                both_penalty_mark.add((dst.cid, person))
             sibling_move_links.append((src.cid, dst.cid, person))
 
         if A.assigned_flag and A.assigned_to: activate_move(A, B)

@@ -1048,3 +1048,23 @@ def test_both_fallback_penalizes_extra_pool_access(tmp_path: Path) -> None:
     assert fallback, "expected a Both fallback selector when widening the pool"
     label = list(fallback.values())[0]
     assert label == "both_fallback::C1::Alex"
+
+
+def test_both_fallback_skipped_for_non_role_components(tmp_path: Path) -> None:
+    comp = component_row(
+        cid="C1",
+        week="Week 1",
+        day="Tuesday",
+        task_name="Single role",
+        candidates=["Alex", "Taylor"],
+    )
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=[comp],
+        backend=[backend_row("Alex", both=True)],
+        prefix="both_fallback_non_role",
+    )
+
+    vm = json.load(paths["map"].open())
+    assert not vm.get("both_fallback_vars"), "non role-restricted tasks should not emit Both fallback penalties"
