@@ -27,6 +27,8 @@ This guide explains every penalty category that can appear in `penalties_activat
 - **PreferredMiss** – For each preferred unordered pair of tasks, the encoder checks whether both tasks were taken by the same person. If not, it adds a penalty weighted by `W5 * K`, where `K` is the size of the feasible pair set. Labels list the group (week/day/task names) and `K=<count>`, which is also copied into the `IgnoredPairsK` column.
 - **DeprioritizedPair** – Soft cost (`W4_DPR`) when the same person takes a deprioritized pair of tasks on the same day. Labels show day, week, person, and the two component IDs.
 - **BothFallback** – When a role-flexible (“Both”) person is used to cover both sides of a leader/follower split in the same family, the fallback selector fires at weight `W4`. Labels list the person and family token.
+  - `n_BothFallback` in `models_summary.csv` counts how many of those selectors are **activated** in the chosen model.
+  - `n_BothFallbackTotal` records how many fallback selectors were **encoded** for the input (i.e., how many tasks could have used the widened pool after paying the penalty), regardless of whether any were chosen.
 
 ## Fairness ladders
 
