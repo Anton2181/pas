@@ -627,6 +627,48 @@ def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> Non
     assert varmap.get("effort_floor_hard_applied") is True
 
 
+def test_auto_day_min_skips_unnamed_days(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C91",
+            week="Week 10",
+            day="",
+            task_name="Monthly Report",
+            candidates=["Antoni Domanowski", "Maciek Oficialski"],
+            assigned=True,
+            assigned_to="Maciek Oficialski",
+            effort=2.0,
+        ),
+        component_row(
+            cid="C92",
+            week="Week 10",
+            day="",
+            task_name="Monthly Report (copy)",
+            candidates=["Antoni Domanowski", "Maciek Oficialski"],
+            assigned=True,
+            assigned_to="Antoni Domanowski",
+            effort=2.0,
+        ),
+    ]
+    backend = [backend_row("Antoni Domanowski"), backend_row("Maciek Oficialski")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=comps,
+        backend=backend,
+        overrides=overrides,
+        prefix="auto_day_unnamed",
+    )
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("auto_day_min_vars", {}) == {}
+    assert varmap.get("auto_day_min_sunday_vars", {}) == {}
+
 def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
     comps = [
         component_row(

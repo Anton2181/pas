@@ -1424,6 +1424,10 @@ def _encode(args):
         if not X_all or A is None:
             continue
 
+        # Skip unnamed days entirely; the AUTO-day minimum applies only to named days.
+        if not trim(d):
+            continue
+
         v_short = pb.new_var()
         pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A), (2, v_short)], 0)
 
