@@ -1107,7 +1107,10 @@ def main():
         rep = tasks[active[0]]
         need = required_role_if_role_based(rep, repeats_per_wdn)
         role_filtered = filter_candidates_by_role_strict(cands, need, cfg.roles_map, include_both=False)
-        both_candidates = [p for p in cands if cfg.roles_map.get(p, {}).get("both", False)]
+        both_candidates = [
+            p for p in cands
+            if cfg.roles_map.get(p, {}).get("both", False) and p not in role_filtered
+        ]
         task_names = [tasks[i].name for i in active]
         prio_ordered = component_priority_pool_ordered(task_names)
         if prio_ordered:
@@ -1145,7 +1148,10 @@ def main():
         cand_list = sorted(task_candidates[t.idx])
         need = required_role_if_role_based(t, repeats_per_wdn)
         role_filtered = filter_candidates_by_role_strict(cand_list, need, cfg.roles_map, include_both=False)
-        both_candidates = [p for p in cand_list if cfg.roles_map.get(p, {}).get("both", False)]
+        both_candidates = [
+            p for p in cand_list
+            if cfg.roles_map.get(p, {}).get("both", False) and p not in role_filtered
+        ]
         prio_ordered = cfg.priority_assign.get(t.name, [])
         if prio_ordered:
             rf_set = set(role_filtered)
@@ -1197,8 +1203,11 @@ def main():
                 inter = pool if inter is None else (inter & pool)
             inter = inter or set()
             rep_need = required_role_if_role_based(rep, repeats_per_wdn)
-            both_candidates = [p for p in sorted(inter) if cfg.roles_map.get(p, {}).get("both", False)]
             rf = filter_candidates_by_role_strict(sorted(inter), rep_need, cfg.roles_map, include_both=False)
+            both_candidates = [
+                p for p in sorted(inter)
+                if cfg.roles_map.get(p, {}).get("both", False) and p not in rf
+            ]
             prio = []
             seen: Set[str] = set()
             for nm in task_names:

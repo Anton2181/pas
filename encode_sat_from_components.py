@@ -1144,7 +1144,10 @@ def _encode(args):
     # Candidate sets (role-based + Both expansions) and manual flags
     base_role: Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_role if p]) for r in comps}
     base_all:  Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_all  if p]) for r in comps}
-    base_both: Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_both if p]) for r in comps}
+    base_both: Dict[str, Set[str]] = {
+        r.cid: set([p for p in r.candidates_both if p and p not in base_role[r.cid]])
+        for r in comps
+    }
     expanded_role: Dict[str, Set[str]] = {r.cid: set(base_role[r.cid]) for r in comps}
     role_restricted: Dict[str, bool] = {
         r.cid: (base_role[r.cid] != base_all[r.cid]) or bool(base_both[r.cid])
@@ -1158,7 +1161,7 @@ def _encode(args):
         if add_both:
             for p in add_both:
                 expanded_role[r.cid].add(p)
-                if role_restricted.get(r.cid, False):
+                if role_restricted.get(r.cid, False) and p not in base_role[r.cid]:
                     both_penalty_mark.add((r.cid, p))
 
     # Sibling handling for manual “Both” (names-based pairing)
@@ -1183,7 +1186,7 @@ def _encode(args):
             expanded_role[dst.cid].update(expanded_role[src.cid])
             expanded_role[src.cid].add(person)
             expanded_role[dst.cid].add(person)
-            if role_restricted.get(dst.cid, False):
+            if role_restricted.get(dst.cid, False) and person not in base_role[dst.cid]:
                 both_penalty_mark.add((dst.cid, person))
             sibling_move_links.append((src.cid, dst.cid, person))
 

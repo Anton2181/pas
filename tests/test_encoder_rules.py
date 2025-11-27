@@ -1068,3 +1068,24 @@ def test_both_fallback_skipped_for_non_role_components(tmp_path: Path) -> None:
 
     vm = json.load(paths["map"].open())
     assert not vm.get("both_fallback_vars"), "non role-restricted tasks should not emit Both fallback penalties"
+
+
+def test_both_fallback_skipped_when_candidate_already_role_ok(tmp_path: Path) -> None:
+    comp = component_row(
+        cid="C1",
+        week="Week 1",
+        day="Tuesday",
+        task_name="Dual role",
+        candidates=["Alex"],
+        both_candidates=["Alex"],
+    )
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=[comp],
+        backend=[backend_row("Alex", both=True)],
+        prefix="both_fallback_role_ok",
+    )
+
+    vm = json.load(paths["map"].open())
+    assert not vm.get("both_fallback_vars"), "should not penalize Both candidate already allowed by role"
