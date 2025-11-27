@@ -906,3 +906,29 @@ def test_assignment_report(tmp_path: Path) -> None:
     assert blair["ReceivedPriority"] == "NO"
     assert blair["CouldHavePriority"] == "YES"
     assert summary_path.exists()
+
+
+def test_both_fallback_penalizes_extra_pool_access(tmp_path: Path) -> None:
+    comp = component_row(
+        cid="C1",
+        week="Week 1",
+        day="Tuesday",
+        task_name="Dual role",
+        candidates=["Alex", "Taylor"],
+    )
+    # Restrict the role-filtered pool to a different person while keeping the wider pool.
+    comp["Role-Filtered Candidates"] = "Taylor"
+    comp["Candidate Count"] = "2"
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=[comp],
+        backend=[backend_row("Alex", both=True)],
+        prefix="both_fallback",
+    )
+
+    vm = json.load(paths["map"].open())
+    fallback = vm.get("both_fallback_vars", {})
+    assert fallback, "expected a Both fallback selector when widening the pool"
+    label = list(fallback.values())[0]
+    assert label == "both_fallback::C1::Alex"

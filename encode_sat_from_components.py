@@ -1102,19 +1102,15 @@ def _encode(args):
     # Candidate sets (role-based + Both expansions) and manual flags
     base_role: Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_role if p]) for r in comps}
     base_all:  Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_all  if p]) for r in comps}
-    role_based: Dict[str, bool]     = {r.cid: (r.repeat_max > 1) for r in comps}
-
     expanded_role: Dict[str, Set[str]] = {r.cid: set(base_role[r.cid]) for r in comps}
     both_penalty_mark: Set[Tuple[str,str]] = set()
 
     for r in comps:
-        if role_based[r.cid]:
-            add_both = base_all[r.cid] & both_people
-            if add_both:
-                for p in add_both:
-                    if p not in base_role[r.cid]:
-                        expanded_role[r.cid].add(p)
-                        both_penalty_mark.add((r.cid, p))
+        add_both = (base_all[r.cid] - base_role[r.cid]) & both_people
+        if add_both:
+            for p in add_both:
+                expanded_role[r.cid].add(p)
+                both_penalty_mark.add((r.cid, p))
 
     # Sibling handling for manual “Both” (names-based pairing)
     sibling_move_links: List[Tuple[str,str,str]] = []
