@@ -199,7 +199,7 @@ def test_manual_siblings_do_not_add_move_links(tmp_path: Path) -> None:
     assert "x::C81::Yulia" not in varmap["x_to_label"].values()
 
 
-def test_manual_assignments_respect_exclusions(tmp_path: Path) -> None:
+def test_conflicting_manual_pair_is_allowed(tmp_path: Path) -> None:
     comps = [
         component_row(
             cid="C80",
@@ -231,10 +231,42 @@ def test_manual_assignments_respect_exclusions(tmp_path: Path) -> None:
     paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_excl")
     varmap = _load_varmap(paths["map"])
 
-    # Even if both components come in marked as manual, the exclusion selector
-    # should still be emitted so the solver cannot assign Alex to both tasks at
-    # once. A second candidate keeps the instance feasible while enforcing the
-    # exclusion.
+    labels = list(varmap["selectors_by_var"].values())
+    assert not any("exclusion::W13::Tuesday::Alex::C80::C81" in label for label in labels)
+
+
+def test_manual_still_blocks_auto_conflicts(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C80",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Alex", "Bailey"],
+            assigned=True,
+        ),
+        component_row(
+            cid="C81",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Conduct Advanced",
+            candidates=["Alex", "Bailey"],
+            assigned=False,
+        ),
+    ]
+
+    backend = [
+        backend_row("Alex", exclusion=("Prep Advanced", "Conduct Advanced")),
+    ]
+
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "DEBUG_RELAX": True,
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_excl_auto")
+    varmap = _load_varmap(paths["map"])
+
     labels = list(varmap["selectors_by_var"].values())
     assert any("exclusion::W13::Tuesday::Alex::C80::C81" in label for label in labels)
 

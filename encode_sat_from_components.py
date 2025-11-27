@@ -1399,6 +1399,14 @@ def _encode(args):
                 if p not in cand.get(a, []) or p not in cand.get(b, []):
                     continue
 
+                # If both components are already fixed to their manual assignee, and that
+                # assignee is this person, allow the conflicting manual pair to stand.
+                if original_manual.get(a, False) and original_manual.get(b, False):
+                    ma = manual_assignee.get(a)
+                    mb = manual_assignee.get(b)
+                    if ma and mb and ma == mb == p:
+                        continue
+
                 pb.add_le([(1, xv(a, p)), (1, xv(b, p))], 1,
                           relax_label=(f"exclusion::W{w}::{d}::{p}::{a}::{b}" if DEBUG_RELAX else None),
                           M=1,
