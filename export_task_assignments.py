@@ -77,6 +77,19 @@ def parse_task_header(header: str) -> Tuple[str,str,str,str,int,str]:
     canonical = "; ".join([week, day, time, name, str(rep_num)])
     return week, day, time, name, rep_num, canonical
 
+
+def header_assignee(header: str) -> str:
+    """
+    Return the first assignee token embedded after the canonical 5 fields, if any.
+    """
+    toks = [trim(x) for x in str(header).split(';')]
+    if len(toks) <= 5:
+        return ""
+    for tok in toks[5:]:
+        if tok:
+            return tok
+    return ""
+
 def canonicalize_header(header: str) -> str:
     """Return the first 5 fields canonicalized as 'Week; Day; Time; Name; RepeatNum'."""
     *_, canonical = (*parse_task_header(header),)
@@ -187,7 +200,14 @@ def parse_backend(path: Path):
         if t:
             ignore_avail.add(t)
 
-    return exclusions, cooldown_key, ignore_avail
+    # Ban list Z
+    banned_tasks: Set[str] = set()
+    for r in range(1, len(mat)):
+        t = col(mat[r], 26)  # Z
+        if t:
+            banned_tasks.add(t)
+
+    return exclusions, cooldown_key, ignore_avail, banned_tasks
 
 def load_assigned_components(path: Path):
     rows = []
@@ -232,7 +252,7 @@ def main():
 
     (task_headers, people, avail,
      key_to_header, header_to_col, group_to_repeats) = load_task_grid(TASK_ASSIGNMENT_PATH)
-    exclusions, cooldown_key, ignore_avail = parse_backend(BACKEND_PATH)
+    exclusions, cooldown_key, ignore_avail, banned_tasks = parse_backend(BACKEND_PATH)
     comps = load_assigned_components(ASSIGNED_OPT_PATH)
     manual_flags = load_manual_flags(VARMAP_PATH)              # cid -> True if manual (single-candidate)
     prepass_canon = load_prepass_headers(DECISION_LOG_PATH)    # canonical TaskHeaders pre-passed
@@ -426,13 +446,15 @@ def main():
         if h in rows_by_header:
             final_rows.append(rows_by_header[h])
         else:
+            banned_manual_assignee = header_assignee(h) if nm in banned_tasks else ""
+            manual_flag = "YES" if banned_manual_assignee else "NO"
             # placeholder row so position matches original column
             final_rows.append({
                 "Task ID": h,
-                "Assignee": "",
+                "Assignee": banned_manual_assignee,
                 "Fallback": "",
                 "PrePassMoved": "NO",
-                "ManualAssignment": "NO",
+                "ManualAssignment": manual_flag,
                 "IgnoreAvailability": "YES" if nm in ignore_avail else "NO",
                 "OneDayPerWeek_OK": "N/A",
                 "Availability_OK": "",
