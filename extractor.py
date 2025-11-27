@@ -337,12 +337,13 @@ def required_role_if_role_based(
         return "follower"
     return None                 # ≥3: neutral
 
-def role_ok_strict(roles_map: Dict[str, Dict[str, bool]], person: str, need: Optional[str]) -> bool:
+def role_ok_strict(
+    roles_map: Dict[str, Dict[str, bool]], person: str, need: Optional[str], *, include_both: bool = True
+) -> bool:
     if not need:
         return True
     r = roles_map.get(person, {"leader": False, "follower": False, "both": False})
-    # NEW: if person has Both, they satisfy any role-based need
-    if r.get("both", False):
+    if include_both and r.get("both", False):
         return True
     return bool(r.get(need, False))
 
@@ -545,6 +546,48 @@ class DecisionLogger:
             w.writeheader()
             for r in self.rows: w.writerow({k: r.get(k, "") for k in DECISION_FIELDS})
 
+
+def exclusion_violation(
+    day_assign: Dict[str, Dict[int, Set[str]]],
+    excl_map: Dict[str, Set[str]],
+    task: "Task",
+    m_idx: int,
+) -> bool:
+    """Return True if assigning task to m_idx would violate exclusions on that day.
+
+    One-candidate pools override exclusions so they can be promoted to manual assignments.
+    """
+    if len(getattr(task, "available", [])) == 1:
+        return False
+    dkey = f"{task.week}|{task.day}"
+    already = day_assign[dkey].get(m_idx, set())
+    for n in already:
+        if n in excl_map.get(task.name, set()):
+            return True
+    return False
+
+def apply_header_assignments(
+    tasks: List["Task"],
+    members: List[str],
+    violates_exclusions,
+    record_day_assign,
+    logger: "DecisionLogger",
+):
+    for t in tasks:
+        assignee_name = trim(getattr(t, "header_assignee", ""))
+        if not assignee_name:
+            continue
+        try:
+            m_idx = members.index(assignee_name)
+        except ValueError:
+            logger.log("manual", t, assignee_name, "Header assignee not found", ""); continue
+        if (m_idx not in getattr(t, "available", [])) and (not getattr(t, "everyone_eligible", False)):
+            logger.log("manual", t, assignee_name, "Header assignee not in pool", ""); continue
+        if violates_exclusions(t, m_idx):
+            logger.log("manual", t, assignee_name, "Header assignment blocked by exclusion", ""); continue
+        t.assigned_to = m_idx; record_day_assign(t, m_idx)
+        logger.log("manual", t, assignee_name, "Assigned (header)", "Applied before clamp")
+
 # ------------------------ Helpers -------------------------------------
 
 def _existing_component_ids(comp_map: Dict[str, List[int]], tasks: List[Task]) -> Set[str]:
@@ -566,9 +609,11 @@ def next_component_id_global(comp_map: Dict[str, List[int]], tasks: List[Task]) 
 def names_from_idxs(members: List[str], idxs: List[int]) -> List[str]:
     return [members[i] for i in idxs if 0 <= i < len(members)]
 
-def filter_candidates_by_role_strict(cands: List[str], need: Optional[str], roles_map: Dict[str, Dict[str, bool]]) -> List[str]:
+def filter_candidates_by_role_strict(
+    cands: List[str], need: Optional[str], roles_map: Dict[str, Dict[str, bool]], *, include_both: bool = True
+) -> List[str]:
     if not need: return list(cands)
-    return [p for p in cands if role_ok_strict(roles_map, p, need)]
+    return [p for p in cands if role_ok_strict(roles_map, p, need, include_both=include_both)]
 
 def component_tasks_by_name_same_wd_repeat(tasks: List[Task], week: str, day: str, repeat: int) -> Dict[str, Task]:
     return {t.name: t for t in tasks if t.week == week and t.day == day and t.repeat == repeat and not t.skipped}
@@ -846,11 +891,7 @@ def main():
     day_assign: Dict[str, Dict[int, Set[str]]] = defaultdict(lambda: defaultdict(set))
 
     def violates_exclusions(task: Task, m_idx: int) -> bool:
-        dkey = same_day_key(task); already = day_assign[dkey].get(m_idx, set())
-        for n in already:
-            if n in excl_map.get(task.name, set()):
-                return True
-        return False
+        return exclusion_violation(day_assign, excl_map, task, m_idx)
 
     def record_day_assign(task: Task, m_idx: int):
         dkey = same_day_key(task); day_assign[dkey][m_idx].add(task.name)
@@ -860,16 +901,7 @@ def main():
         if s and task.name in s: s.remove(task.name)
 
     # HEADER ASSIGNMENTS
-    for t in tasks:
-        assignee_name = trim(getattr(t, "header_assignee", ""))
-        if not assignee_name: continue
-        try: m_idx = members.index(assignee_name)
-        except ValueError:
-            logger.log("manual", t, assignee_name, "Header assignee not found", ""); continue
-        if violates_exclusions(t, m_idx):
-            logger.log("manual", t, assignee_name, "Header assignment blocked by exclusion", ""); continue
-        t.assigned_to = m_idx; record_day_assign(t, m_idx)
-        logger.log("manual", t, assignee_name, "Assigned (header)", "Applied before clamp")
+    apply_header_assignments(tasks, members, violates_exclusions, record_day_assign, logger)
 
     # CLAMP + NORMALIZE
     clamp_repeats_with_exceptions(tasks, cfg.roles_map, members, cfg.exceptions, EXCEPTION_REPEAT_LIMIT, logger)
@@ -1064,9 +1096,9 @@ def main():
                     seen.add(p); out.append(p)
         return out
 
-    def component_candidate_intersection(idxs: List[int]) -> Tuple[List[str], List[str], List[str]]:
+    def component_candidate_intersection(idxs: List[int]) -> Tuple[List[str], List[str], List[str], List[str]]:
         active = [i for i in idxs if tasks[i].assigned_to is None and not tasks[i].banned and not tasks[i].skipped]
-        if not active: return [], [], []
+        if not active: return [], [], [], []
         inter: Optional[Set[str]] = None
         for i in active:
             pool = task_candidates[i]
@@ -1074,22 +1106,23 @@ def main():
         cands = sorted(inter or set())
         rep = tasks[active[0]]
         need = required_role_if_role_based(rep, repeats_per_wdn)
-        role_filtered = filter_candidates_by_role_strict(cands, need, cfg.roles_map)
+        role_filtered = filter_candidates_by_role_strict(cands, need, cfg.roles_map, include_both=False)
+        both_candidates = [p for p in cands if cfg.roles_map.get(p, {}).get("both", False)]
         task_names = [tasks[i].name for i in active]
         prio_ordered = component_priority_pool_ordered(task_names)
         if prio_ordered:
             rf_set = set(role_filtered)
             prio_filtered = [p for p in prio_ordered if p in rf_set]
             if prio_filtered:
-                return cands, role_filtered, prio_filtered
-        return cands, role_filtered, role_filtered
+                return cands, role_filtered, both_candidates, prio_filtered
+        return cands, role_filtered, both_candidates, role_filtered
 
     # remaining_unassigned_only.csv
     unassigned_rows = []
     for comp_id, idxs in sorted(((cid, arr) for cid, arr in comp_map.items() if arr), key=lambda kv: kv[0]):
         all_assigned = all(tasks[i].assigned_to is not None or tasks[i].banned or tasks[i].skipped for i in idxs)
         if all_assigned: continue
-        cands, role_filtered, prio_filtered = component_candidate_intersection(idxs)
+        cands, role_filtered, both_candidates, prio_filtered = component_candidate_intersection(idxs)
         rep = tasks[idxs[0]]
         task_names = [tasks[i].name for i in idxs if not tasks[i].banned and not tasks[i].skipped]
         rmax = max((len(repeats_per_wdn.get((rep.week, rep.day, nm), set())) for nm in task_names), default=0)
@@ -1102,8 +1135,8 @@ def main():
             "Task Count":task_count,"Names":" | ".join([tasks[i].name for i in idxs]),"SiblingKey":sibling_key,
             "Priority":priority_tier_component(idxs),"Assigned?":"YES" if all_assigned else "NO",
             "Assigned To":", ".join(assignees),
-            "Candidate Count":len(prio_filtered),"Candidates":", ".join(cands),
-            "Role-Filtered Candidates":", ".join(prio_filtered),"Total Effort":f"{tot_eff:.2f}",
+            "Candidate Count":len(role_filtered) + len(both_candidates),"Candidates":", ".join(cands),
+            "Role-Filtered Candidates":", ".join(prio_filtered),"Both Candidates":", ".join(both_candidates),"Total Effort":f"{tot_eff:.2f}",
         })
 
     comp_task_idxs = set(i for idxs in comp_map.values() for i in idxs)
@@ -1111,7 +1144,8 @@ def main():
         if t.idx in comp_task_idxs or t.banned or t.skipped or t.assigned_to is not None: continue
         cand_list = sorted(task_candidates[t.idx])
         need = required_role_if_role_based(t, repeats_per_wdn)
-        role_filtered = filter_candidates_by_role_strict(cand_list, need, cfg.roles_map)
+        role_filtered = filter_candidates_by_role_strict(cand_list, need, cfg.roles_map, include_both=False)
+        both_candidates = [p for p in cand_list if cfg.roles_map.get(p, {}).get("both", False)]
         prio_ordered = cfg.priority_assign.get(t.name, [])
         if prio_ordered:
             rf_set = set(role_filtered)
@@ -1124,8 +1158,8 @@ def main():
             "Kind":"Task","ComponentId":"","Week":t.week,"Day":t.day,"Repeat":t.repeat,"RepeatMax":rmax,"Task Count":1,
             "Names":t.name,"SiblingKey":sibling_key,"Priority":priority_tier_task(t),
             "Assigned?":"NO","Assigned To":"",
-            "Candidate Count":len(role_filtered),"Candidates":", ".join(cand_list),
-            "Role-Filtered Candidates":", ".join(role_filtered),"Total Effort":f"{tot_eff:.2f}",
+            "Candidate Count":len(role_filtered) + len(both_candidates),"Candidates":", ".join(cand_list),
+            "Role-Filtered Candidates":", ".join(role_filtered),"Both Candidates":", ".join(both_candidates),"Total Effort":f"{tot_eff:.2f}",
         })
 
     def sort_key(row):
@@ -1152,6 +1186,7 @@ def main():
         assignees = sorted({members[tasks[i].assigned_to] for i in idxs if tasks[i].assigned_to is not None})
         tot_eff = float(sum(tasks[i].effort for i in idxs if not tasks[i].banned and not tasks[i].skipped))
         task_count = sum(1 for i in idxs if not tasks[i].banned and not tasks[i].skipped)
+        both_candidates: List[str] = []
         if all_assigned:
             cands = role_filtered = prio_filtered = list(assignees)
         else:
@@ -1162,7 +1197,8 @@ def main():
                 inter = pool if inter is None else (inter & pool)
             inter = inter or set()
             rep_need = required_role_if_role_based(rep, repeats_per_wdn)
-            rf = filter_candidates_by_role_strict(sorted(inter), rep_need, cfg.roles_map)
+            both_candidates = [p for p in sorted(inter) if cfg.roles_map.get(p, {}).get("both", False)]
+            rf = filter_candidates_by_role_strict(sorted(inter), rep_need, cfg.roles_map, include_both=False)
             prio = []
             seen: Set[str] = set()
             for nm in task_names:
@@ -1176,8 +1212,10 @@ def main():
             "Task Count":task_count,"Names":" | ".join([tasks[i].name for i in idxs]),"SiblingKey":sibling_key,
             "Priority":priority_tier_component(idxs),
             "Assigned?":"YES" if all_assigned else "NO","Assigned To":", ".join(assignees),
-            "Candidate Count":len(prio_filtered),"Candidates":", ".join(cands),
-            "Role-Filtered Candidates":", ".join(prio_filtered),"Total Effort":f"{tot_eff:.2f}",
+            "Candidate Count": (len(assignees) if all_assigned else (len(role_filtered) + len(both_candidates))),
+            "Candidates":", ".join(cands),
+            "Role-Filtered Candidates":", ".join(prio_filtered if not all_assigned else assignees),
+            "Both Candidates":", ".join(both_candidates if not all_assigned else []),"Total Effort":f"{tot_eff:.2f}",
         })
 
     components_rows.sort(key=sort_key)
@@ -1187,7 +1225,7 @@ def main():
     with OUTPUT_UNASSIGNED_ONLY.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=[
             "Kind","ComponentId","Week","Day","Repeat","RepeatMax","Task Count","Names","SiblingKey",
-            "Priority","Assigned?","Assigned To","Candidate Count","Candidates","Role-Filtered Candidates","Total Effort"
+            "Priority","Assigned?","Assigned To","Candidate Count","Candidates","Role-Filtered Candidates","Both Candidates","Total Effort"
         ])
         w.writeheader(); [w.writerow(r) for r in unassigned_rows]
     print(f"Wrote: {OUTPUT_UNASSIGNED_ONLY.resolve()}")
@@ -1195,7 +1233,7 @@ def main():
     with OUTPUT_COMPONENTS_ALL.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=[
             "Kind","ComponentId","Week","Day","Repeat","RepeatMax","Task Count","Names","SiblingKey",
-            "Priority","Assigned?","Assigned To","Candidate Count","Candidates","Role-Filtered Candidates","Total Effort"
+            "Priority","Assigned?","Assigned To","Candidate Count","Candidates","Role-Filtered Candidates","Both Candidates","Total Effort"
         ])
         w.writeheader(); [w.writerow(r) for r in components_rows]
     print(f"Wrote: {OUTPUT_COMPONENTS_ALL.resolve()}")

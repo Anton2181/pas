@@ -624,7 +624,17 @@ def main() -> None:
     args = parse_args()
     comps, _, _ = encoder.load_components(args.components)
     backend_matrix = encoder.read_csv_matrix(args.backend)
-    _, _, exclusions, _, _, _, _ = encoder.load_backend_roles_and_maps(backend_matrix)
+    (
+        _,
+        _,
+        exclusions,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+    ) = encoder.load_backend_roles_and_maps(backend_matrix)
     edges = build_conflicts(comps, exclusions)
     candidate_counts = {row.cid: _candidate_count(row, args.candidate_source) for row in comps}
     graph = _build_graph(comps, edges, candidate_counts)

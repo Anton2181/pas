@@ -128,6 +128,8 @@ def parse_models_from_text(text: str) -> List[List[str]]:
 def read_varmap(path: Path):
     vm = json.loads(path.read_text(encoding='utf-8'))
     x_to_label: Dict[str,str] = vm.get('x_to_label', {})
+    manual_original = {cid for cid, flag in (vm.get('manual_components_original') or {}).items() if flag}
+    penalty_weights = vm.get('penalty_weights', {}) or {}
 
     # Optional maps (present in newer encoders)
     vprev_pri_vars     = vm.get('vprev_pri_vars', {})      # may be missing in current encoder
@@ -155,8 +157,13 @@ def read_varmap(path: Path):
     for cid, var in component_drop_by_cid.items():
         if not var:
             continue
+        if cid in manual_original:
+            continue
         label = x_to_label.get(var) or f"drop::{cid}"
         component_drop_by_var[var] = label
+
+    auto_day_min_vars = vm.get('auto_day_min_vars', {}) or {}
+    auto_day_min_sunday_vars = vm.get('auto_day_min_sunday_vars', {}) or {}
 
     penalty_maps = {
         'CooldownPRI': vm.get('vprev_pri_vars', {}),
@@ -174,11 +181,13 @@ def read_varmap(path: Path):
         'TwoDaySoft': two_day_soft,
         'DeprioritizedPair': vm.get('deprioritized_pair_vars', {}),  # <-- NEW
         'EffortFloor': effort_floor_vars,
+        'AutoDayMin': auto_day_min_vars,
+        'AutoDayMinSunday': auto_day_min_sunday_vars,
         'DebugRelax': debug_relax_by_var,
         'DebugUnassigned': component_drop_by_var,
     }
     config = vm.get('config', {})
-    return x_to_label, penalty_maps, config
+    return x_to_label, penalty_maps, config, penalty_weights
 
 
 def load_components_info(path: Path):
@@ -272,7 +281,13 @@ def compute_fairness(schedule_pairs: List[Tuple[str,str]], metric: str,
     return (max(vals), sum(abs(v - mean) for v in vals), -min(vals)), loads
 
 # --------------------- Penalty activation decoding ---------------------
-def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]]):
+def find_penalties(
+    true_vars: List[str],
+    penalty_maps: Dict[str, Dict[str, str]],
+    manual_cids_from_input: Set[str] | None = None,
+    penalty_weights: Dict[str, int] | None = None,
+    x_to_label: Dict[str, str] | None = None,
+):
     var_to_cat = {}
     var_to_label = {}
     for cat, m in penalty_maps.items():
@@ -284,12 +299,32 @@ def find_penalties(true_vars: List[str], penalty_maps: Dict[str, Dict[str,str]])
     unknown_true = []
     for v in true_vars:
         if v in var_to_cat:
-            activations.append((v, var_to_cat[v], var_to_label.get(v, "")))
+            cat = var_to_cat[v]
+            lbl = var_to_label.get(v, "")
+            weight = (penalty_weights or {}).get(v)
+
+            # Skip DebugUnassigned penalties for components that were already
+            # manually assigned in the input — they are not solver decisions.
+            if (
+                manual_cids_from_input
+                and cat == "DebugUnassigned"
+                and lbl.startswith("drop::")
+            ):
+                cid = lbl.split("::", 2)[1]
+                if cid in manual_cids_from_input:
+                    continue
+
+            activations.append((v, cat, lbl, weight))
         else:
-            unknown_true.append(v)
+            weight = (penalty_weights or {}).get(v)
+            if weight is not None:
+                lbl = (x_to_label or {}).get(v, "")
+                activations.append((v, "UnknownPenalty", lbl, weight))
+            else:
+                unknown_true.append(v)
 
     counts: Dict[str,int] = {}
-    for _, cat, _ in activations:
+    for _, cat, _, _ in activations:
         counts[cat] = counts.get(cat, 0) + 1
 
     return activations, counts, unknown_true
@@ -304,7 +339,8 @@ def main():
         print("No models found in the provided file (no 'v ...' lines).", file=sys.stderr)
         sys.exit(1)
 
-    x_to_label, penalty_maps, config = read_varmap(args.varmap)
+    x_to_label, penalty_maps, config, penalty_weights = read_varmap(args.varmap)
+    penalty_totals = {cat: len(m) for cat, m in penalty_maps.items()}
     comp_rows, comp_info = load_components_info(args.components)
     comp_week, comp_fams, manual_cids_from_input = extract_comp_meta(comp_rows)
     manual_components_from_input, manual_loads_by_person = compute_manual_loads(comp_rows, comp_info, args.metric)
@@ -321,9 +357,15 @@ def main():
     for idx, true_vars in enumerate(models_true_vars, start=1):
         pairs = decode_pairs(true_vars, x_to_label)
         score, loads = compute_fairness(pairs, args.metric, comp_info, manual_loads_by_person)
-        acts, counts, unknown_true = find_penalties(true_vars, penalty_maps)
+        acts, counts, unknown_true = find_penalties(
+            true_vars,
+            penalty_maps,
+            manual_cids_from_input,
+            penalty_weights,
+            x_to_label,
+        )
         penalty_summary = "; ".join(
-            f"{cat}:{label}" if label else cat for _, cat, label in sorted(acts, key=lambda t: (t[1], t[0]))
+            f"{cat}:{label}" if label else cat for _, cat, label, _ in sorted(acts, key=lambda t: (t[1], t[0]))
         )
 
         models_summary.append({
@@ -342,14 +384,18 @@ def main():
             "n_RepeatOverPRI": str(counts.get("RepeatOverPRI", 0)),
             "n_RepeatOverNON": str(counts.get("RepeatOverNON", 0)),
             "n_BothFallback": str(counts.get("BothFallback", 0)),
+            "n_BothFallbackTotal": str(penalty_totals.get("BothFallback", 0)),
             "n_PreferredMiss": str(counts.get("PreferredMiss", 0)),
             "n_PriorityCoverage": str(counts.get("PriorityCoverage", 0)),
             "n_OneTaskDay": str(counts.get("OneTaskDay", 0)),
             "n_TwoDaySoft": str(counts.get("TwoDaySoft", 0)),  # <-- NEW
             "n_DeprioritizedPair": str(counts.get("DeprioritizedPair", 0)),  # <-- NEW
             "n_EffortFloor": str(counts.get("EffortFloor", 0)),
+            "n_AutoDayMin": str(counts.get("AutoDayMin", 0)),
+            "n_AutoDayMinSunday": str(counts.get("AutoDayMinSunday", 0)),
             "n_DebugRelax": str(counts.get("DebugRelax", 0)),
             "n_DebugUnassigned": str(counts.get("DebugUnassigned", 0)),
+            "n_UnknownPenalty": str(counts.get("UnknownPenalty", 0)),
             "penalties": penalty_summary,
         })
 
@@ -364,9 +410,9 @@ def main():
             "idx","objective","max_load","imbalance","min_load","num_assignments",
             "n_CooldownPRI","n_CooldownNON","n_CooldownStreak","n_CooldownNonConsec",
             "n_CooldownGeoPRI","n_CooldownGeoNON","n_RepeatOverPRI","n_RepeatOverNON",
-            "n_BothFallback","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
-            "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor",
-            "n_DebugRelax","n_DebugUnassigned","penalties"  # <-- NEW columns
+            "n_BothFallback","n_BothFallbackTotal","n_PreferredMiss","n_PriorityCoverage","n_OneTaskDay",
+            "n_TwoDaySoft","n_DeprioritizedPair","n_EffortFloor","n_AutoDayMin","n_AutoDayMinSunday",
+            "n_DebugRelax","n_DebugUnassigned","n_UnknownPenalty","penalties"  # <-- NEW columns
         ])
         w.writeheader()
         w.writerows(models_summary)
@@ -508,9 +554,21 @@ def main():
         with open(args.penalties_out, 'w', newline='', encoding='utf-8') as fh:
             w = csv.writer(fh)
             # AdjPairs column shows WkFrom->WkTo pairs that fed each cooldown ladder
-            w.writerow(["Var","Category","Label","IgnoredPairsK","OverT","OverLimit","WeekFrom","WeekTo","AdjPairs"])
-            for v, cat, label in sorted(best_penalty_acts, key=lambda t: (t[1], t[0])):
+            w.writerow([
+                "Var",
+                "Category",
+                "Label",
+                "Weight",
+                "IgnoredPairsK",
+                "OverT",
+                "OverLimit",
+                "WeekFrom",
+                "WeekTo",
+                "AdjPairs",
+            ])
+            for v, cat, label, weight in sorted(best_penalty_acts, key=lambda t: (t[1], t[0])):
                 K = over_t = over_lim = wfrom = wto = adj_pairs = ""
+                weight_str = "" if weight is None else str(weight)
 
                 if cat == "PreferredMiss":
                     m = pref_k_re.search(label or "")
@@ -537,10 +595,17 @@ def main():
                     if m:
                         wfrom, wto = f"W{m.group(1)}", f"W{m.group(2)}"
 
-                w.writerow([v, cat, label, K, over_t, over_lim, wfrom, wto, adj_pairs])
+                w.writerow([v, cat, label, weight_str, K, over_t, over_lim, wfrom, wto, adj_pairs])
 
         print(f"Wrote penalty activations → {args.penalties_out}")
         print(f"Wrote cooldown debug → {args.cooldown_debug_out}")
+
+    both_total = penalty_totals.get("BothFallback", 0)
+    if both_total:
+        activated = best_penalty_counts.get("BothFallback", 0)
+        print(f"[info] Both fallback selectors encoded: {both_total}; activated in chosen model: {activated}")
+    else:
+        print("[info] No Both fallback selectors were encoded for this input.")
 
     # Pretty print best model’s weight-impacting decisions
     print("\n=== Weight-impacting decisions in chosen model ===")
@@ -555,8 +620,10 @@ def main():
         family_re   = re.compile(r'::family=([^:]+)')
 
         by_cat: Dict[str, List[Tuple[str,str,str]]] = {}
-        for v, cat, label in best_penalty_acts:
+        for v, cat, label, weight in best_penalty_acts:
             hint_parts: List[str] = []
+            if weight is not None:
+                hint_parts.append(f"w={weight}")
 
             if cat == "PreferredMiss":
                 m = pref_k_re.search(label or "")

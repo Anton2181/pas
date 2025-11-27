@@ -26,19 +26,21 @@ This document summarizes every rule enforced by `encode_sat_from_components.py`,
 
 3. **Tier 3** – *Same-day nudger* (`W3`) encourages filling a second manual-only task on thin days.
 
-4. **Tier 4** – *Deprioritized pairs* (`W4_DPR`) penalize assigning the same person to a deprioritized unordered pair on the same day.
+4. **AUTO-day minimums** – Soft selectors (`W_AUTO_DAY` for weekdays, `W_AUTO_DAY_SUNDAY` for Sunday) fire when a day containing AUTO slots leaves the assigned Task Count below 2. This keeps the prior “fill to two” expectation without hard-banning sparse AUTO days.
 
-5. **Tier 5** – *Preferred pair miss* (`W5`) charges for every feasible preferred pair that fails to appear.
+5. **Tier 4** – *Deprioritized pairs* (`W4_DPR`) penalize assigning the same person to a deprioritized unordered pair on the same day.
 
-6. **Tier 6 (Fairness)** – Convex ladders `W6_OVER` / `W6_UNDER` keep each person’s task load near the global mean (the defaults now keep `FAIR_MEAN_MULTIPLIER = 1.0` and `FAIR_OVER_START_DELTA = 0`, so the baseline target is the unmodified global average before availability scaling kicks in). Under-load penalties only fire when a person falls far below the mean, while over-load ladders grow quadratically to stop hoarding. (Lines 1662‑1915.)
+6. **Tier 5** – *Preferred pair miss* (`W5`) charges for every feasible preferred pair that fails to appear.
 
-7. **Priority coverage** – Selectors `priority_coverage_vars_top` (`T1C`) and `priority_coverage_vars_second` (`T2C`) encourage spreading top/second priority tasks across different people or families (configurable via `PRIORITY_COVERAGE_MODE`). These are *soft incentives*; they do **not** force every eligible dancer to receive a priority task. Instead they reward models that cover more distinct names. (Lines 1451‑1582.)
+7. **Tier 6 (Fairness)** – Convex ladders `W6_OVER` / `W6_UNDER` keep each person’s task load near the global mean (the defaults now keep `FAIR_MEAN_MULTIPLIER = 1.0` and `FAIR_OVER_START_DELTA = 0`, so the baseline target is the unmodified global average before availability scaling kicks in). Under-load penalties only fire when a person falls far below the mean, while over-load ladders grow quadratically to stop hoarding. (Lines 1662‑1915.)
 
-8. **Two-day softening** – When `SUNDAY_TWO_DAY_SOFT=True` or `TWO_DAY_SOFT_ALL=True`, violating the two-day ban adds selectors at weights `W_SUNDAY_TWO_DAY` / `W_TWO_DAY_SOFT` instead of hard-failing the model. The defaults keep `W_TWO_DAY_SOFT = 2e9` and `W_SUNDAY_TWO_DAY = 1.5e9`, which deliberately outrank the coverage selectors (`T1C = 1e9`, `T2C = 5e8`) so day-violation penalties stay stronger than the incentive to widen priority coverage. (Lines 1044‑1148.)
+8. **Priority coverage** – Selectors `priority_coverage_vars_top` (`T1C`) and `priority_coverage_vars_second` (`T2C`) encourage spreading top/second priority tasks across different people or families (configurable via `PRIORITY_COVERAGE_MODE`). Each person targets the highest priority tier they can actually reach (their `Top Priority` tasks if any are available, otherwise their `Second Priority` tasks). These are *soft incentives*; they do **not** force every eligible dancer to receive a priority task. Instead they reward models that cover more distinct names. (Lines 1451‑1582.)
 
-9. **Sunday rule softening** – The dedicated Sunday ladder uses `W_SUNDAY_TWO_DAY` so you can independently adjust that behavior even when weekday pairs stay hard-banned. (Lines 1050‑1102.)
+9. **Two-day softening** – When `SUNDAY_TWO_DAY_SOFT=True` or `TWO_DAY_SOFT_ALL=True`, violating the two-day ban adds selectors at weights `W_SUNDAY_TWO_DAY` / `W_TWO_DAY_SOFT` instead of hard-failing the model. The defaults keep `W_TWO_DAY_SOFT = 2e9` and `W_SUNDAY_TWO_DAY = 1.5e9`, which deliberately outrank the coverage selectors (`T1C = 1e9`, `T2C = 5e8`) so day-violation penalties stay stronger than the incentive to widen priority coverage. (Lines 1044‑1148.)
 
-10. **Visualization nudges** – Not directly part of the objective, but `visualize_components.py` now highlights scarce nodes via candidate-count heatmaps so you can visually inspect which rules (repeat/cooldown vs. fairness vs. two-day) are likely to bite after encoding.
+10. **Sunday rule softening** – The dedicated Sunday ladder uses `W_SUNDAY_TWO_DAY` so you can independently adjust that behavior even when weekday pairs stay hard-banned. (Lines 1050‑1102.)
+
+11. **Visualization nudges** – Not directly part of the objective, but `visualize_components.py` now highlights scarce nodes via candidate-count heatmaps so you can visually inspect which rules (repeat/cooldown vs. fairness vs. two-day) are likely to bite after encoding.
 
 ## Priority-task coverage FAQ
 

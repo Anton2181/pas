@@ -119,6 +119,157 @@ def test_auto_soften_marks_scarce_families(tmp_path: Path) -> None:
     assert "Fam" in varmap["auto_soften_families"]
 
 
+def test_manual_components_skip_debug_drop_vars(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Manual Tue",
+            candidates=["Alex"],
+            assigned=True,
+            assigned_to="Alex",
+        ),
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Manual Wed",
+            candidates=["Blair"],
+            assigned=True,
+            assigned_to="Blair",
+        ),
+    ]
+    backend = [backend_row("Alex"), backend_row("Blair")]
+
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual")
+    varmap = _load_varmap(paths["map"])
+
+    # With DEBUG_ALLOW_UNASSIGNED, manual components still use strict exactly-one
+    # constraints and should not get drop variables.
+    assert varmap["component_drop_vars"] == {}
+
+
+def test_manual_siblings_do_not_add_move_links(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C80",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Yulia"],
+            sibling_key="ADV",
+            assigned=True,
+            assigned_to="Yulia",
+        ),
+        component_row(
+            cid="C81",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Natalia"],
+            sibling_key="ADV",
+            assigned=True,
+            assigned_to="Natalia",
+        ),
+    ]
+
+    backend = [backend_row("Yulia", both=True), backend_row("Natalia")]
+
+    overrides = {
+        "DEBUG_ALLOW_UNASSIGNED": True,
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_moves")
+    varmap = _load_varmap(paths["map"])
+
+    labels = list(varmap["selectors_by_var"].values())
+    assert not any("both_move_link" in label for label in labels)
+    # Ensure we did not expand the destination candidates with the source person.
+    assert "x::C81::Yulia" not in varmap["x_to_label"].values()
+
+
+def test_conflicting_manual_pair_is_allowed(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C80",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Alex", "Bailey"],
+            assigned=True,
+        ),
+        component_row(
+            cid="C81",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Conduct Advanced",
+            candidates=["Alex", "Bailey"],
+            assigned=True,
+        ),
+    ]
+
+    backend = [
+        backend_row("Alex", exclusion=("Prep Advanced", "Conduct Advanced")),
+    ]
+
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "DEBUG_RELAX": True,
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_excl")
+    varmap = _load_varmap(paths["map"])
+
+    labels = list(varmap["selectors_by_var"].values())
+    assert not any("exclusion::W13::Tuesday::Alex::C80::C81" in label for label in labels)
+
+
+def test_manual_still_blocks_auto_conflicts(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C80",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Prep Advanced",
+            candidates=["Alex", "Bailey"],
+            assigned=True,
+        ),
+        component_row(
+            cid="C81",
+            week="Week 13",
+            day="Tuesday",
+            task_name="Conduct Advanced",
+            candidates=["Alex", "Bailey"],
+            assigned=False,
+        ),
+    ]
+
+    backend = [
+        backend_row("Alex", exclusion=("Prep Advanced", "Conduct Advanced")),
+    ]
+
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "DEBUG_RELAX": True,
+    }
+
+    paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="manual_excl_auto")
+    varmap = _load_varmap(paths["map"])
+
+    labels = list(varmap["selectors_by_var"].values())
+    assert any("exclusion::W13::Tuesday::Alex::C80::C81" in label for label in labels)
+
 def test_repeat_penalty_skips_manual_only(tmp_path: Path) -> None:
     comps = [
         component_row(
@@ -259,6 +410,44 @@ def test_priority_miss_prefers_highest_tier(tmp_path: Path) -> None:
     assert any("tier=SECOND" in label for label in required_labels)
 
 
+def test_priority_coverage_uses_highest_available_tier_per_person(tmp_path: Path) -> None:
+    """People degrade to their best available tier when top tasks are absent."""
+
+    comps = [
+        component_row(
+            cid="C2",
+            week="Week 1",
+            day="Wednesday",
+            task_name="Second Task",
+            candidates=["Alex", "Blair"],
+            priority=False,
+        ),
+    ]
+
+    backend = [
+        backend_row("Alex", top_task="Top Task", second_task="Second Task"),
+        backend_row("Blair", second_task="Second Task"),
+    ]
+
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+        "WEIGHTS": {"W_PRIORITY_MISS": 123},
+    }
+
+    varmap = _load_varmap(
+        run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="prio_best")["map"]
+    )
+
+    top_labels = list(varmap.get("priority_coverage_vars_top", {}).values())
+    second_labels = list(varmap.get("priority_coverage_vars_second", {}).values())
+
+    assert not any("person=Alex" in label for label in top_labels), "no top tasks available for Alex"
+    assert any("person=Alex" in label for label in second_labels)
+    assert any("person=Blair" in label for label in second_labels)
+
+
 def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
     comps = [
         component_row(cid="C1", week="Week 1", day="Tuesday", task_name="Task A", candidates=["Alex", "Blair"], sibling_key="Fam"),
@@ -266,7 +455,10 @@ def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:
     backend = [backend_row("Alex"), backend_row("Blair")]
     overrides = {
         "DEBUG_ALLOW_UNASSIGNED": True,
-        "WEIGHTS": {"W_DEBUG_UNASSIGNED": 999},
+        "WEIGHTS": {
+            "W_DEBUG_UNASSIGNED_PRIORITY": 999,
+            "W_DEBUG_UNASSIGNED_NON_PRIORITY": 999,
+        },
         "AUTO_SOFTEN": {"ENABLED": False},
         "BANNED_SIBLING_PAIRS": [],
         "BANNED_SAME_DAY_PAIRS": [],
@@ -480,7 +672,7 @@ def test_effort_floor_skips_when_two_day_probe_fails(tmp_path: Path) -> None:
 
     assert varmap.get("effort_floor_feasible") is False
     assert varmap.get("effort_floor_hard_applied") is False
-    assert varmap.get("effort_floor_notes", {}).get("reason") == "no_eligible_people"
+    assert varmap.get("effort_floor_notes", {}).get("reason") == "feasibility_probe_failed"
 
 
 def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> None:
@@ -501,14 +693,56 @@ def test_effort_floor_excludes_auto_days_without_capacity(tmp_path: Path) -> Non
     paths = run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor_auto")
     varmap = _load_varmap(paths["map"])
 
-    # Alex cannot satisfy the AUTO-day ≥2 rule, so he should be excluded from the floor.
-    assert varmap.get("effort_floor_eligible", []) == ["Blair"]
+    # AUTO days below the soft minimum still surface in diagnostics, but remain eligible under the soft rule.
+    assert varmap.get("effort_floor_eligible", []) == ["Alex", "Blair"]
     blocked = varmap.get("effort_floor_notes", {}).get("auto_day_blocked", {})
     assert "Alex" in blocked
     assert blocked["Alex"].get("W1:Tuesday", {}).get("total_task_count") == 1
     assert varmap.get("effort_floor_feasible") is True
     assert varmap.get("effort_floor_hard_applied") is True
 
+
+def test_auto_day_min_skips_unnamed_days(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C91",
+            week="Week 10",
+            day="",
+            task_name="Monthly Report",
+            candidates=["Antoni Domanowski", "Maciek Oficialski"],
+            assigned=True,
+            assigned_to="Maciek Oficialski",
+            effort=2.0,
+        ),
+        component_row(
+            cid="C92",
+            week="Week 10",
+            day="",
+            task_name="Monthly Report (copy)",
+            candidates=["Antoni Domanowski", "Maciek Oficialski"],
+            assigned=True,
+            assigned_to="Antoni Domanowski",
+            effort=2.0,
+        ),
+    ]
+    backend = [backend_row("Antoni Domanowski"), backend_row("Maciek Oficialski")]
+    overrides = {
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=comps,
+        backend=backend,
+        overrides=overrides,
+        prefix="auto_day_unnamed",
+    )
+    varmap = _load_varmap(paths["map"])
+
+    assert varmap.get("auto_day_min_vars", {}) == {}
+    assert varmap.get("auto_day_min_sunday_vars", {}) == {}
 
 def test_priority_cooldown_hard_ignores_debug_relax(tmp_path: Path) -> None:
     comps = [
@@ -747,3 +981,29 @@ def test_assignment_report(tmp_path: Path) -> None:
     assert blair["ReceivedPriority"] == "NO"
     assert blair["CouldHavePriority"] == "YES"
     assert summary_path.exists()
+
+
+def test_both_fallback_penalizes_extra_pool_access(tmp_path: Path) -> None:
+    comp = component_row(
+        cid="C1",
+        week="Week 1",
+        day="Tuesday",
+        task_name="Dual role",
+        candidates=["Alex", "Taylor"],
+    )
+    # Restrict the role-filtered pool to a different person while keeping the wider pool.
+    comp["Role-Filtered Candidates"] = "Taylor"
+    comp["Candidate Count"] = "2"
+
+    paths = run_encoder_for_rows(
+        tmp_path,
+        components=[comp],
+        backend=[backend_row("Alex", both=True)],
+        prefix="both_fallback",
+    )
+
+    vm = json.load(paths["map"].open())
+    fallback = vm.get("both_fallback_vars", {})
+    assert fallback, "expected a Both fallback selector when widening the pool"
+    label = list(fallback.values())[0]
+    assert label == "both_fallback::C1::Alex"

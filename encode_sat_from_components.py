@@ -94,9 +94,11 @@ DEFAULT_CONFIG = {
         # ordering with ``RATIO`` (each rung is ``RATIO``× the next). Inline
         # notes explain the intent, when the weight triggers, and a concrete
         # example of a violation that would pay the cost.
-        #   * W_DEBUG_UNASSIGNED – debug-only drop selector; activates when a task
-        #     is intentionally left unassigned under debug relax mode; e.g., marking
-        #     a hard-to-place component as dropped.
+        #   * W_DEBUG_UNASSIGNED_PRIORITY / _NON_PRIORITY – debug-only drop
+        #     selectors; activate when a task is intentionally left unassigned
+        #     under debug relax mode; e.g., marking a hard-to-place component as
+        #     dropped. Priority tasks can be weighted separately from non-priority
+        #     tasks.
         #   * W4 – soft cost for using the “Both” expansion to assign a manual pair;
         #     activates when a person is auto-selected for a “Both” link; e.g.,
         #     filling both halves of a manual repeat in one step.
@@ -146,6 +148,10 @@ DEFAULT_CONFIG = {
         #   * W_SUNDAY_TWO_DAY – softens named-day bans involving Sunday; activates
         #     when a person takes two named days including Sunday under softened
         #     mode; e.g., Tuesday+Sunday combination.
+        #   * W_AUTO_DAY – discourages single-task AUTO days on non-Sundays;
+        #     activates when AUTO appears on a weekday with <2 tasks.
+        #   * W_AUTO_DAY_SUNDAY – same as W_AUTO_DAY but scoped to Sunday,
+        #     letting you tune weekend behavior separately.
         #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
         #     short-staffed; e.g., only one manual assignment on a day that expects
         #     two.
@@ -160,7 +166,8 @@ DEFAULT_CONFIG = {
         #     assignment counts.
         "ENABLED": True,
         "ORDER": [
-            "W_DEBUG_UNASSIGNED",
+            "W_DEBUG_UNASSIGNED_PRIORITY",
+            "W_DEBUG_UNASSIGNED_NON_PRIORITY",
             "W4",
             "W4_DPR",
             "W_EFFORT_FLOOR",
@@ -177,6 +184,8 @@ DEFAULT_CONFIG = {
             "W2_STREAK",
             "W2_COOLDOWN",
             "W_SUNDAY_TWO_DAY",
+            "W_AUTO_DAY",
+            "W_AUTO_DAY_SUNDAY",
             "W3",
             "W5",
             "W6_UNDER",
@@ -191,11 +200,12 @@ DEFAULT_CONFIG = {
     # Weights (strict ×1000 scaling between major tiers)
     "WEIGHTS": {
         # --- Debug helper (other weights are derived from the ladder) ---
-        "W_DEBUG_UNASSIGNED": 1_000_000_000_000_000_000,
+        "W_DEBUG_UNASSIGNED_PRIORITY": 1_000_000_000_000_000_000,
+        "W_DEBUG_UNASSIGNED_NON_PRIORITY": 1_000_000_000_000_000_000,
 
         # Availability-aware fairness scaling (Tier-6 helper)
         "FAIRNESS_AVAILABILITY": {
-            "ENABLED": False,
+            "ENABLED": True,
             "REFERENCE": "auto",  # "auto" or "all"
             "MIN_RATIO": 0.35,
             "MAX_RATIO": 1.85,
@@ -259,8 +269,7 @@ def _greedy_effort_floor_probe(
 
     # Track usage to mirror the strongest per-person hard rules.
     family_week_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
-    day_used: Dict[str, Set[tuple[int, str]]] = defaultdict(set)
-    auto_week_used: Dict[str, Set[int]] = defaultdict(set)
+    auto_days_by_week: Dict[str, Dict[int, Set[str]]] = defaultdict(lambda: defaultdict(set))
     assignments: Dict[str, List[str]] = defaultdict(list)
 
     comp_meta: List[tuple[int, CompRow]] = []
@@ -293,19 +302,17 @@ def _greedy_effort_floor_probe(
                 continue
             if any((week, fam) in family_week_used[person] for fam in fams):
                 continue
-            if day and (week, day) in day_used[person]:
-                continue
-            if is_auto and week in auto_week_used[person]:
-                continue
+            if is_auto:
+                seen = auto_days_by_week[person].get(week, set())
+                if seen and day and day not in seen:
+                    continue
 
             # Take the assignment for this person.
             remaining[person] -= effort_units
             assignments[person].append(r.cid)
             family_week_used[person].update((week, fam) for fam in fams)
-            if day:
-                day_used[person].add((week, day))
             if is_auto:
-                auto_week_used[person].add(week)
+                auto_days_by_week[person][week].add(day or "__UNNAMED__")
             break
 
     covered = {p: target - max(need, 0) for p, need in remaining.items()}
@@ -437,6 +444,7 @@ class CompRow:
     assigned_to: List[str]
     candidates_all: List[str]
     candidates_role: List[str]
+    candidates_both: List[str]
     sibling_key: Tuple[str, ...]  # canonical family tokens used for sibling/cooldown grouping
     # Flags for two-tier priority spread
     is_top: bool = field(default=False)     # Top Priority (column AE)
@@ -624,11 +632,16 @@ def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
             assigned_to   = split_csv_people(rr.get("Assigned To",""))
             cand_role     = split_csv_people(rr.get("Role-Filtered Candidates",""))
             cand_all      = split_csv_people(rr.get("Candidates",""))
+            cand_both     = split_csv_people(rr.get("Both Candidates",""))
+            if not cand_both and cand_all:
+                # Back-compat: infer Both pool from Candidates minus explicit role-filtered list
+                cand_both = [p for p in cand_all if p not in cand_role]
             candidates_role = cand_role if cand_role else cand_all
             total_effort  = max(0.0, to_float(rr.get("Total Effort", ""), task_count))
 
             people.update(assigned_to)
             people.update(candidates_role)
+            people.update(cand_both)
 
             sib = tuple(split_sibling_key(rr.get("SiblingKey",""))) if have_sibling_key else tuple()
             used_siblingkey |= bool(sib)
@@ -637,7 +650,7 @@ def load_components(path: Path) -> Tuple[List[CompRow], Set[str], bool]:
                 cid=cid, week_label=week_label, week_num=week_num, day=day,
                 repeat=repeat, repeat_max=repeat_max, task_count=task_count, total_effort=total_effort,
                 names=names, priority=prio, assigned_flag=assigned_flag,
-                assigned_to=assigned_to, candidates_all=cand_all, candidates_role=candidates_role,
+                assigned_to=assigned_to, candidates_all=cand_all, candidates_role=candidates_role, candidates_both=cand_both,
                 sibling_key=sib
             ))
     return rows, people, used_siblingkey
@@ -677,6 +690,8 @@ def load_backend_roles_and_maps(backend_matrix: List[List[str]]):
     deprioritized: Dict[str, Set[str]] = defaultdict(set)
     top_priority_tasks: Set[str] = set()
     second_priority_tasks: Set[str] = set()
+    person_top_tasks: Dict[str, Set[str]] = defaultdict(set)
+    person_second_tasks: Dict[str, Set[str]] = defaultdict(set)
 
     # "Both" roles
     for r in range(1, len(backend_matrix)):
@@ -733,16 +748,22 @@ def load_backend_roles_and_maps(backend_matrix: List[List[str]]):
         for r in range(1, len(backend_matrix)):
             row = backend_matrix[r]
             if len(row) > c_top:
-                t = trim(row[c_top])
-                if t:
+                name = trim(row[col_name]) if len(row) > col_name else ""
+                tasks = split_pipe(row[c_top]) if len(row) > c_top else []
+                for t in tasks:
                     top_priority_tasks.add(t)
+                    if name:
+                        person_top_tasks[name].add(t)
     if c_second is not None:
         for r in range(1, len(backend_matrix)):
             row = backend_matrix[r]
             if len(row) > c_second:
-                t = trim(row[c_second])
-                if t:
+                name = trim(row[col_name]) if len(row) > col_name else ""
+                tasks = split_pipe(row[c_second]) if len(row) > c_second else []
+                for t in tasks:
                     second_priority_tasks.add(t)
+                    if name:
+                        person_second_tasks[name].add(t)
 
     # Canonical representative per connected component
     cooldown_key: Dict[str, str] = {}
@@ -763,7 +784,17 @@ def load_backend_roles_and_maps(backend_matrix: List[List[str]]):
         for n in comp:
             cooldown_key[n] = canon
 
-    return both_people, cooldown_key, exclusions, preferred, top_priority_tasks, second_priority_tasks, deprioritized
+    return (
+        both_people,
+        cooldown_key,
+        exclusions,
+        preferred,
+        top_priority_tasks,
+        second_priority_tasks,
+        deprioritized,
+        person_top_tasks,
+        person_second_tasks,
+    )
 
 
 def canonical_families(task_names: Iterable[str], cooldown_key: Dict[str, str]) -> Tuple[str, ...]:
@@ -973,7 +1004,12 @@ def _encode(args):
 
     PRIORITY_COVERAGE_MODE = str(CONFIG["PRIORITY_COVERAGE_MODE"]).lower()
     W = CONFIG["WEIGHTS"]
-    W_DEBUG_UNASSIGNED = int(W.get("W_DEBUG_UNASSIGNED", 0))
+    W_DEBUG_UNASSIGNED_PRIORITY = int(
+        W.get("W_DEBUG_UNASSIGNED_PRIORITY", W.get("W_DEBUG_UNASSIGNED", 0))
+    )
+    W_DEBUG_UNASSIGNED_NON_PRIORITY = int(
+        W.get("W_DEBUG_UNASSIGNED_NON_PRIORITY", W.get("W_DEBUG_UNASSIGNED", 0))
+    )
 
     def weight(name: str, *, default: int | None = None) -> int:
         if name in W:
@@ -993,6 +1029,8 @@ def _encode(args):
 
     W3, W4, W5 = weight("W3"), weight("W4"), weight("W5")
     W4_DPR = weight("W4_DPR", default=W4)
+    W_AUTO_DAY = weight("W_AUTO_DAY")
+    W_AUTO_DAY_SUNDAY = weight("W_AUTO_DAY_SUNDAY", default=W_AUTO_DAY)
 
     W6_OVER, W6_UNDER, T1C = weight("W6_OVER"), weight("W6_UNDER"), weight("T1C")
     T2C = weight("T2C", default=max(1, T1C // 10))
@@ -1006,8 +1044,17 @@ def _encode(args):
 
     comps, universe_people, used_siblingkey = load_components(args.components)
     backend = read_csv_matrix(args.backend)
-    (both_people, cooldown_key, exclusions, preferred_pairs,
-     top_priority_tasks, second_priority_tasks, deprioritized_pairs_map) = load_backend_roles_and_maps(backend)
+    (
+        both_people,
+        cooldown_key,
+        exclusions,
+        preferred_pairs,
+        top_priority_tasks,
+        second_priority_tasks,
+        deprioritized_pairs_map,
+        person_top_tasks,
+        person_second_tasks,
+    ) = load_backend_roles_and_maps(backend)
 
     # If SiblingKey wasn't present, synthesize from backend cooldown families.
     if not used_siblingkey:
@@ -1074,6 +1121,11 @@ def _encode(args):
 
     # Snapshot original manual flags (from extractor)
     original_manual: Dict[str, bool] = {r.cid: bool(r.assigned_flag) for r in comps}
+    manual_assignee: Dict[str, str] = {
+        r.cid: r.assigned_to[0]
+        for r in comps
+        if r.assigned_flag and r.assigned_to
+    }
 
     # Sibling groups by literal Names (used for preferred pairs / manual links)
     sib_groups_names: Dict[Tuple[str, str, Tuple[str, ...]], List[CompRow]] = defaultdict(list)
@@ -1092,19 +1144,17 @@ def _encode(args):
     # Candidate sets (role-based + Both expansions) and manual flags
     base_role: Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_role if p]) for r in comps}
     base_all:  Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_all  if p]) for r in comps}
-    role_based: Dict[str, bool]     = {r.cid: (r.repeat_max > 1) for r in comps}
-
+    base_both: Dict[str, Set[str]] = {r.cid: set([p for p in r.candidates_both if p]) for r in comps}
     expanded_role: Dict[str, Set[str]] = {r.cid: set(base_role[r.cid]) for r in comps}
     both_penalty_mark: Set[Tuple[str,str]] = set()
 
     for r in comps:
-        if role_based[r.cid]:
-            add_both = base_all[r.cid] & both_people
-            if add_both:
-                for p in add_both:
-                    if p not in base_role[r.cid]:
-                        expanded_role[r.cid].add(p)
-                        both_penalty_mark.add((r.cid, p))
+        inferred = (base_all[r.cid] - base_role[r.cid]) & both_people
+        add_both = ((base_both[r.cid] if base_both else set()) | inferred) & both_people
+        if add_both:
+            for p in add_both:
+                expanded_role[r.cid].add(p)
+                both_penalty_mark.add((r.cid, p))
 
     # Sibling handling for manual “Both” (names-based pairing)
     sibling_move_links: List[Tuple[str,str,str]] = []
@@ -1115,6 +1165,11 @@ def _encode(args):
 
         def activate_move(src: CompRow, dst: CompRow):
             if not src.assigned_to:
+                return
+            # Skip links when the destination component is already manual – there is
+            # no room to "move" the person, and the link would only introduce
+            # unsatisfiable exactly-one constraints for the original assignees.
+            if dst.assigned_flag and dst.assigned_to:
                 return
             person = src.assigned_to[0]
             if person not in both_people:
@@ -1234,12 +1289,14 @@ def _encode(args):
 
 
     # -------------------- Exactly-one per component (hard) --------------------
-    component_drop_vars: Dict[str, str] = {}
+    component_drop_vars: Dict[str, Tuple[str, bool]] = {}
     for r in comps:
         X = [xv(r.cid, p) for p in cand[r.cid]]
-        if DEBUG_ALLOW_UNASSIGNED:
+        manual_orig = bool(original_manual.get(r.cid, False))
+        allow_drop = DEBUG_ALLOW_UNASSIGNED and ((not manual_orig) or (not X))
+        if allow_drop:
             drop_var = pb.new_var()
-            component_drop_vars[r.cid] = drop_var
+            component_drop_vars[r.cid] = (drop_var, manual_orig)
             x_to_label[drop_var] = f"drop::{r.cid}"
             label = f"exactly_one_or_drop::{r.cid}"
             terms = [(1, v) for v in X] + [(1, drop_var)]
@@ -1263,9 +1320,18 @@ def _encode(args):
                   info={"kind":"both_move_link","A":A,"B":B,"person":P})
 
     penalties: List[Tuple[int, str]] = []
-    if DEBUG_ALLOW_UNASSIGNED and W_DEBUG_UNASSIGNED > 0:
-        for cid, drop_var in component_drop_vars.items():
-            penalties.append((W_DEBUG_UNASSIGNED, drop_var))
+    if DEBUG_ALLOW_UNASSIGNED:
+        for cid, (drop_var, manual_orig) in component_drop_vars.items():
+            if manual_orig:
+                continue
+            r = comp_by_cid[cid]
+            weight = (
+                W_DEBUG_UNASSIGNED_PRIORITY
+                if r.priority
+                else W_DEBUG_UNASSIGNED_NON_PRIORITY
+            )
+            if weight > 0:
+                penalties.append((weight, drop_var))
     two_day_soft_vars: Dict[str, str] = {}
 
     # -------------------- Sibling anti-dup (names-based exact match) --------------------
@@ -1383,18 +1449,43 @@ def _encode(args):
             for (a, b) in pairs:
                 if p not in cand.get(a, []) or p not in cand.get(b, []):
                     continue
+
+                # If both components are already fixed to their manual assignee, and that
+                # assignee is this person, allow the conflicting manual pair to stand.
+                if original_manual.get(a, False) and original_manual.get(b, False):
+                    ma = manual_assignee.get(a)
+                    mb = manual_assignee.get(b)
+                    if ma and mb and ma == mb == p:
+                        continue
+
                 pb.add_le([(1, xv(a, p)), (1, xv(b, p))], 1,
                           relax_label=(f"exclusion::W{w}::{d}::{p}::{a}::{b}" if DEBUG_RELAX else None),
                           M=1,
                           info={"kind":"exclusion","week":str(w),"day":d,"person":p,"a":a,"b":b})
 
-    # -------------------- HARD: AUTO day rule (weighted by Task Count) --------------------
+    # -------------------- AUTO-day soft penalties (weighted by Task Count) --------------------
+    auto_day_min_vars: Dict[str, str] = {}
+    auto_day_min_sunday_vars: Dict[str, str] = {}
     for key, X_all in person_day_X_all.items():
         p, w, d = key
         A = A_map.get(key)
         if not X_all or A is None:
             continue
-        pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A)], 0)
+
+        # Skip unnamed days entirely; the AUTO-day minimum applies only to named days.
+        if not trim(d):
+            continue
+
+        v_short = pb.new_var()
+        pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A), (2, v_short)], 0)
+
+        is_sunday = trim(d).lower() == "sunday"
+        if is_sunday:
+            penalties.append((W_AUTO_DAY_SUNDAY, v_short))
+            auto_day_min_sunday_vars[v_short] = f"auto_day_under::sunday::person={p}::week={w}::day={d or 'UNNAMED'}"
+        else:
+            penalties.append((W_AUTO_DAY, v_short))
+            auto_day_min_vars[v_short] = f"auto_day_under::weekday::person={p}::week={w}::day={d or 'UNNAMED'}"
 
     # -------------------- Prev-week cooldown (aggregated per family) --------------------
     fam_index: Dict[Tuple[int, str, str], Dict[str, List[str]]] = defaultdict(lambda: {"any":[], "pri":[], "auto":[]})
@@ -1801,10 +1892,9 @@ def _encode(args):
                         "week": week_key,
                         "day": day_key,
                     }
-                    effort_floor_blocked_cids[p].add(r.cid)
-                else:
-                    terms_effort.append((effort_units, xv(r.cid, p)))
-                    U_effort += effort_units
+
+                terms_effort.append((effort_units, xv(r.cid, p)))
+                U_effort += effort_units
 
                 week_key = trim(getattr(r, "week", ""))
                 fam_tokens = tuple(r.sibling_key) if r.sibling_key else (r.cid,)
@@ -2111,8 +2201,19 @@ def _encode(args):
     top_any_by_person: Dict[str, str] = {}
     top_miss_by_person: Dict[str, str] = {}
     second_any_by_person: Dict[str, str] = {}
+
+    def matches_person_tier(row: CompRow, person: str, tier: str) -> bool:
+        names = set(row.names)
+        if tier == "top":
+            return bool(names & person_top_tasks.get(person, set()))
+        return bool(names & person_second_tasks.get(person, set()))
+
     for p in people:
-        x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
+        x_top = [
+            xv(r.cid, p)
+            for r in comps
+            if (p in cand.get(r.cid, [])) and matches_person_tier(r, p, "top")
+        ]
         if x_top:
             TopAny = make_or(pb, x_top)
             z_miss = pb.new_var()
@@ -2121,7 +2222,11 @@ def _encode(args):
             top_miss_by_person[p] = z_miss
             priority_required_vars[z_miss] = f"priority_required::tier=TOP::person={p}"
         else:
-            x_second = [xv(r.cid, p) for r in comps if r.is_second and p in cand.get(r.cid, [])]
+            x_second = [
+                xv(r.cid, p)
+                for r in comps
+                if (p in cand.get(r.cid, [])) and matches_person_tier(r, p, "second")
+            ]
             if not x_second:
                 continue
             SecondAny = make_or(pb, x_second)
@@ -2156,9 +2261,13 @@ def _encode(args):
         # TOP (independent)
         for p in people:
             for fam in sorted(fam_tokens2):
-                x_top_pf = [xv(r.cid, p)
-                            for r in comps
-                            if r.is_top and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
+                x_top_pf = [
+                    xv(r.cid, p)
+                    for r in comps
+                    if matches_person_tier(r, p, "top")
+                    and (fam in comp_fams2.get(r.cid, ()))
+                    and (p in cand.get(r.cid, []))
+                ]
                 if x_top_pf:
                     TopAny_pf = make_or(pb, x_top_pf)
                     z = pb.new_var()
@@ -2166,9 +2275,13 @@ def _encode(args):
                     penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
                     priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
                 else:
-                    x_second_pf = [xv(r.cid, p)
-                                   for r in comps
-                                   if r.is_second and (fam in comp_fams2.get(r.cid, ())) and (p in cand.get(r.cid, []))]
+                    x_second_pf = [
+                        xv(r.cid, p)
+                        for r in comps
+                        if matches_person_tier(r, p, "second")
+                        and (fam in comp_fams2.get(r.cid, ()))
+                        and (p in cand.get(r.cid, []))
+                    ]
                     if not x_second_pf:
                         continue  # not eligible for second in this family
                     SecondAny_pf = make_or(pb, x_second_pf)
@@ -2197,11 +2310,18 @@ def _encode(args):
         for fam, meta in softener.notes.items()
     }
 
+    penalty_weights = {v: int(w) for w, v in penalties}
+    if CONFIG.get("DEBUG_RELAX"):
+        W_HARD = int(CONFIG.get("W_HARD", 0))
+        for var in selectors_by_var:
+            penalty_weights.setdefault(var, W_HARD)
+
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
         "q_vars":                    {},
         "selectors":                 pb._selmap,
         "selectors_by_var":          selectors_by_var,
+        "penalty_weights":           penalty_weights,
         "manual_components":         {r.cid: bool(is_manual.get(r.cid, False)) for r in comps},
         "manual_components_original":{r.cid: bool(original_manual.get(r.cid, False)) for r in comps},
         "both_fallback_vars":        both_fallback_vars,
@@ -2219,10 +2339,13 @@ def _encode(args):
         "cooldown_pri_ladder_vars":  cooldown_pri_ladder_vars,
         "cooldown_non_ladder_vars":  cooldown_non_ladder_vars,
         # Gate visibility for cooldowns (lets you confirm AUTO was required)
-        "component_drop_vars":       component_drop_vars,
+        "component_drop_vars":       {cid: var for cid, (var, _) in component_drop_vars.items()},
+        "component_drop_manual":     {cid: manual for cid, (_, manual) in component_drop_vars.items() if manual},
         "two_day_soft_vars": two_day_soft_vars,
         # back-compat alias:
         "sunday_two_day_vars": two_day_soft_vars,
+        "auto_day_min_vars": auto_day_min_vars,
+        "auto_day_min_sunday_vars": auto_day_min_sunday_vars,
         "cooldown_gate_info": cooldown_gate_info,
         "family_registry_path": str(getattr(args, "family_registry", "family_registry.json")),
         "family_labels": family_labels,
@@ -2246,12 +2369,15 @@ def _encode(args):
     # Count “gated pairs” (number of cooldown nodes that had an AUTO gate present)
     gated_pairs_count = len(cooldown_gate_info)
     twoday_soft_count = len(two_day_soft_vars)
+    auto_day_var_count = len(auto_day_min_vars) + len(auto_day_min_sunday_vars)
     stats = [
         f"People: {len(people)}",
         f"Components: {len(comps)}",
         f"Debug-relax: {'ON' if DEBUG_RELAX else 'OFF'} (W_HARD={W_HARD})",
         f"Allow unassigned components: {'ON' if DEBUG_ALLOW_UNASSIGNED else 'OFF'} "
-        f"(W_DEBUG_UNASSIGNED={W_DEBUG_UNASSIGNED}, drop_vars={len(component_drop_vars)})",
+        f"(W_DEBUG_UNASSIGNED_PRIORITY={W_DEBUG_UNASSIGNED_PRIORITY}, "
+        f"W_DEBUG_UNASSIGNED_NON_PRIORITY={W_DEBUG_UNASSIGNED_NON_PRIORITY}, "
+        f"drop_vars={len(component_drop_vars)})",
     ]
     ladder_cfg = CONFIG.get("WEIGHT_LADDER", {})
     ladder_order = ladder_cfg.get("ORDER") or []
@@ -2283,7 +2409,7 @@ def _encode(args):
             stats[-1] += f", reason={reason}"
     stats.extend([
         "Day rules:",
-        "  • AUTO present on (person,week,day) ⇒ need ≥2 tasks that day (Task Count weighted).",
+        f"  • AUTO present on (person,week,day) ⇒ soft min to 2 tasks (weekday W={W_AUTO_DAY}, Sunday W={W_AUTO_DAY_SUNDAY}); total selectors={auto_day_var_count}.",
         "  • Same-day task exclusions respected; banned same-day pairs enforced (named days only).",
         "  • Two named days in a week require at least one side to be fully manual.",
         "Sibling rules:",

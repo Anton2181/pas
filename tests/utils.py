@@ -23,6 +23,7 @@ COMPONENT_COLUMNS: Sequence[str] = (
     "Candidate Count",
     "Candidates",
     "Role-Filtered Candidates",
+    "Both Candidates",
     "Total Effort",
 )
 
@@ -69,6 +70,7 @@ def component_row(
     day: str,
     task_name: str,
     candidates: Iterable[str],
+    both_candidates: Iterable[str] | None = None,
     sibling_key: str = "",
     assigned: bool = False,
     assigned_to: str | None = None,
@@ -78,7 +80,9 @@ def component_row(
     """Build a Dict row for ``components_all.csv``."""
 
     cand_list = [c for c in candidates]
+    both_list = [c for c in (both_candidates or [])]
     cand_csv = ",".join(cand_list)
+    both_csv = ",".join(both_list)
     row = {col: "" for col in COMPONENT_COLUMNS}
     assignee = assigned_to if assigned_to else (cand_list[0] if assigned and cand_list else "")
     row.update(
@@ -95,9 +99,10 @@ def component_row(
             "Priority": "YES" if priority else "NO",
             "Assigned?": "YES" if assigned else "NO",
             "Assigned To": assignee,
-            "Candidate Count": str(len(cand_list)),
+            "Candidate Count": str(len(cand_list) + len(both_list)),
             "Candidates": cand_csv,
             "Role-Filtered Candidates": cand_csv,
+            "Both Candidates": both_csv,
             "Total Effort": f"{effort:.2f}",
         }
     )
