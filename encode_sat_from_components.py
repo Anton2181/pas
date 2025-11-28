@@ -791,6 +791,8 @@ class PBWriter:
         self._cur = 1
         self._selmap: Dict[str, str] = {}
         self.debug_rows: List[Dict[str, str]] = []
+        # Optional: populated by the encoder to trace which components feed each var.
+        self.support_map: Dict[str, Set[str]] | None = None
 
     def new_var(self) -> str:
         name = f"x{self._cur}"
@@ -934,6 +936,12 @@ def make_or(pb: PBWriter, xs) -> str | None:
     for x in cleaned:
         pb.add_le([(1, x), (-1, A)], 0)
     pb.add_ge([(1, x) for x in cleaned] + [(-1, A)], 0)
+    if pb.support_map is not None:
+        support = set()
+        for v in cleaned:
+            support.update(pb.support_map.get(v, set()))
+        if support:
+            pb.support_map[A] = support
     return A
 
 def make_and(pb: PBWriter, a: str, b: str) -> str:
@@ -941,6 +949,12 @@ def make_and(pb: PBWriter, a: str, b: str) -> str:
     pb.add_le([(1, z), (-1, a)], 0)
     pb.add_le([(1, z), (-1, b)], 0)
     pb.add_le([(1, a), (1, b), (-1, z)], 1)
+    if pb.support_map is not None:
+        support = set()
+        support.update(pb.support_map.get(a, set()))
+        support.update(pb.support_map.get(b, set()))
+        if support:
+            pb.support_map[z] = support
     return z
 
 def make_and_not(pb: PBWriter, d: str, a: str | None) -> str:
@@ -950,6 +964,11 @@ def make_and_not(pb: PBWriter, d: str, a: str | None) -> str:
     pb.add_le([(1, y), (-1, d)], 0)
     pb.add_le([(1, y), (1, a)], 1)
     pb.add_le([(1, d), (-1, a), (-1, y)], 0)
+    if pb.support_map is not None:
+        support = set(pb.support_map.get(d, set()))
+        support.update(pb.support_map.get(a, set()))
+        if support:
+            pb.support_map[y] = support
     return y
 
 
@@ -1192,6 +1211,7 @@ def _encode(args):
 
     # -------------------- Prebuild x-variables --------------------
     pb = PBWriter(debug_relax=DEBUG_RELAX, W_HARD=W_HARD)
+    pb.support_map = defaultdict(set)
 
     def debug_relax_label(label: str, *, allow_relax: bool = True) -> str | None:
         return label if (DEBUG_RELAX and allow_relax) else None
@@ -1203,9 +1223,22 @@ def _encode(args):
             xname = pb.new_var()
             x_index[(r.cid, p)] = xname
             x_to_label[xname] = f"x::{r.cid}::{p}"
+            if pb.support_map is not None:
+                pb.support_map[xname].add(r.cid)
 
     def xv(cid: str, person: str) -> str:
         return x_index[(cid, person)]
+
+    def register_support(var: str, sources: Iterable[str]):
+        if pb.support_map is None:
+            return
+        support: Set[str] = set()
+        for v in sources:
+            if not isinstance(v, str):
+                continue
+            support.update(pb.support_map.get(v, set()))
+        if support:
+            pb.support_map[var] = support
 
     # -------------------- Precompute day-level indicators --------------------
     person_day_X_all: Dict[Tuple[str,int,str], List[Tuple[str,int]]] = defaultdict(list)
@@ -1275,6 +1308,8 @@ def _encode(args):
             drop_var = pb.new_var()
             component_drop_vars[r.cid] = (drop_var, manual_orig)
             x_to_label[drop_var] = f"drop::{r.cid}"
+            if pb.support_map is not None:
+                pb.support_map[drop_var].add(r.cid)
             label = f"exactly_one_or_drop::{r.cid}"
             terms = [(1, v) for v in X] + [(1, drop_var)]
             pb.add_eq(terms, 1,
@@ -1469,6 +1504,7 @@ def _encode(args):
 
         v_short = pb.new_var()
         pb.add_ge([(tc, xi) for (xi, tc) in X_all] + [(-2, A), (2, v_short)], 0)
+        register_support(v_short, [xi for (xi, _tc) in X_all])
 
         is_sunday = trim(d).lower() == "sunday"
         if is_sunday:
@@ -1630,6 +1666,7 @@ def _encode(args):
             pb.add_le(sum_terms + [(-U, b_t)], t - 1)
             penalties.append((W1_COOLDOWN * (CONFIG["COOLDOWN_GEO"] ** (t - 1)), b_t))
             cooldown_pri_ladder_vars[b_t] = f"cooldown_geo::PRI::person={person}::family={fam}::t={t}::{U}"
+            register_support(b_t, [v for _, v in sum_terms])
 
     for (person, fam), viols in cooldown_viols_non.items():
         U = len(viols)
@@ -1641,6 +1678,7 @@ def _encode(args):
             pb.add_le(sum_terms + [(-U, b_t)], t - 1)
             penalties.append((W2_COOLDOWN * (CONFIG["COOLDOWN_GEO"] ** (t - 1)), b_t))
             cooldown_non_ladder_vars[b_t] = f"cooldown_geo::NON::person={person}::family={fam}::t={t}::{U}"
+            register_support(b_t, [v for _, v in sum_terms])
 
     # -------------------- INTRA-week cooldown (same week, per family) --------------------
     # Build day-granular family buckets: (week, family, person, day) -> any/pri/auto x-vars
@@ -1748,6 +1786,7 @@ def _encode(args):
         v_fill = pb.new_var()
         pb.add_ge([(1, xi) for (xi, _tc) in X_all] + [(-2, Y), (1, v_fill)], 0)
         penalties.append((W3, v_fill))
+        register_support(v_fill, [xi for (xi, _tc) in X_all])
 
     # ---------- Tier 4 ----------
     both_fallback_vars: Dict[str, str] = {}
@@ -1808,6 +1847,7 @@ def _encode(args):
         penalties.append((W5 * K, z))
         group_label = f"{A.week_label}/{A.day}/" + "+".join(sorted(A.names))
         preferred_miss_vars[z] = f"preferred_pair_missed::group={group_label}::K={K}"
+        register_support(z, [PrefOK])
 
     # ---------- Tier 6 (UPDATED): Across-horizon fairness (global, non-linear) ----------
     total_tc = sum(max(1, int(r.task_count)) for r in comps)
@@ -2055,6 +2095,7 @@ def _encode(args):
                     effort_floor_vars[under_floor] = (
                         f"effort_floor_under::person={p}::target={EFFORT_FLOOR_TARGET}::capacity={U_p}"
                     )
+                register_support(under_floor, [v for _, v in terms_p])
 
                 if EFFORT_FLOOR_HARD:
                     pb.add_ge(
@@ -2140,6 +2181,7 @@ def _encode(args):
                             repeat_limit_pri_vars[g_t] = (
                                 f"repeat_over_geo::PRI::person={p}::family={fam_trim}::t={t}::limit={LIMIT_PRI}"
                             )
+                        register_support(b_t, [v for _, v in pri_terms_pf])
 
             # ----- NON-PRIORITY -----
             if non_terms_pf:
@@ -2181,6 +2223,7 @@ def _encode(args):
                             repeat_limit_non_vars[g_t] = (
                                 f"repeat_over_geo::NON::person={p}::family={fam_trim}::t={t}::limit={LIMIT_NON}"
                             )
+                        register_support(b_t, [v for _, v in non_terms_pf])
 
     # ---------- Priority coverage (GLOBAL / FAMILY), two tiers ----------
     priority_coverage_vars_top: Dict[str, str] = {}
@@ -2284,12 +2327,20 @@ def _encode(args):
         for var in selectors_by_var:
             penalty_weights.setdefault(var, W_HARD)
 
+    penalty_components = {}
+    if pb.support_map is not None:
+        for var in penalty_weights:
+            comps_for_var = pb.support_map.get(var, set())
+            if comps_for_var:
+                penalty_components[var] = sorted(comps_for_var)
+
     Path(args.map).write_text(json.dumps({
         "x_to_label": x_to_label,
         "q_vars":                    {},
         "selectors":                 pb._selmap,
         "selectors_by_var":          selectors_by_var,
         "penalty_weights":           penalty_weights,
+        "penalty_components":        penalty_components,
         "manual_components":         {r.cid: bool(is_manual.get(r.cid, False)) for r in comps},
         "manual_components_original":{r.cid: bool(original_manual.get(r.cid, False)) for r in comps},
         "both_fallback_vars":        both_fallback_vars,

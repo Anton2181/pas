@@ -8,6 +8,7 @@ Consume saved SAT assignments (models) and produce:
   - fairness_plots_bars.png
   - fairness_plots_lorenz.png
   - penalties_activated.csv (all weight-impacting decisions that were True)
+  - component_penalties.csv (per-component penalty rollups for the best model)
   - cooldown_debug_by_pf.csv (debug: chosen weeks per (person,family), AUTO/MANUAL)
   - stdout: readable list of weight-impacting decisions per model.
 
@@ -48,6 +49,8 @@ def parse_args():
     ap.add_argument('--plots-lorenz', default='fairness_plots_lorenz.png')
     ap.add_argument('--penalties-out', default='penalties_activated.csv',
                     help='CSV listing all activated (True) penalty decisions in the best model')
+    ap.add_argument('--component-penalties-out', default='component_penalties.csv',
+                    help='CSV listing per-component penalty totals and details for the best model')
     ap.add_argument('--cooldown-debug-out', default='cooldown_debug_by_pf.csv',
                     help='CSV listing chosen weeks per (person,family) with AUTO/MANUAL flags')
     return ap.parse_args()
@@ -130,6 +133,7 @@ def read_varmap(path: Path):
     x_to_label: Dict[str,str] = vm.get('x_to_label', {})
     manual_original = {cid for cid, flag in (vm.get('manual_components_original') or {}).items() if flag}
     penalty_weights = vm.get('penalty_weights', {}) or {}
+    penalty_components = vm.get('penalty_components', {}) or {}
 
     # Optional maps (present in newer encoders)
     vprev_pri_vars     = vm.get('vprev_pri_vars', {})      # may be missing in current encoder
@@ -189,7 +193,7 @@ def read_varmap(path: Path):
         'DebugUnassigned': component_drop_by_var,
     }
     config = vm.get('config', {})
-    return x_to_label, penalty_maps, config, penalty_weights
+    return x_to_label, penalty_maps, config, penalty_weights, penalty_components
 
 
 def load_components_info(path: Path):
@@ -289,6 +293,7 @@ def find_penalties(
     manual_cids_from_input: Set[str] | None = None,
     penalty_weights: Dict[str, int] | None = None,
     x_to_label: Dict[str, str] | None = None,
+    penalty_components: Dict[str, List[str]] | None = None,
 ):
     var_to_cat = {}
     var_to_label = {}
@@ -304,6 +309,7 @@ def find_penalties(
             cat = var_to_cat[v]
             lbl = var_to_label.get(v, "")
             weight = (penalty_weights or {}).get(v)
+            comps = (penalty_components or {}).get(v, [])
 
             # Skip DebugUnassigned penalties for components that were already
             # manually assigned in the input — they are not solver decisions.
@@ -316,17 +322,18 @@ def find_penalties(
                 if cid in manual_cids_from_input:
                     continue
 
-            activations.append((v, cat, lbl, weight))
+            activations.append((v, cat, lbl, weight, comps))
         else:
             weight = (penalty_weights or {}).get(v)
             if weight is not None:
                 lbl = (x_to_label or {}).get(v, "")
-                activations.append((v, "UnknownPenalty", lbl, weight))
+                comps = (penalty_components or {}).get(v, [])
+                activations.append((v, "UnknownPenalty", lbl, weight, comps))
             else:
                 unknown_true.append(v)
 
     counts: Dict[str,int] = {}
-    for _, cat, _, _ in activations:
+    for _, cat, _, _, _ in activations:
         counts[cat] = counts.get(cat, 0) + 1
 
     return activations, counts, unknown_true
@@ -341,10 +348,22 @@ def main():
         print("No models found in the provided file (no 'v ...' lines).", file=sys.stderr)
         sys.exit(1)
 
-    x_to_label, penalty_maps, config, penalty_weights = read_varmap(args.varmap)
+    x_to_label, penalty_maps, config, penalty_weights, penalty_components = read_varmap(args.varmap)
     penalty_totals = {cat: len(m) for cat, m in penalty_maps.items()}
     comp_rows, comp_info = load_components_info(args.components)
     comp_week, comp_fams, manual_cids_from_input = extract_comp_meta(comp_rows)
+    comp_meta: Dict[str, Dict[str, str]] = {}
+    for r in comp_rows:
+        cid = (r.get("ComponentId") or "").strip()
+        if not cid:
+            continue
+        comp_meta[cid] = {
+            "Week": (r.get("Week") or "").strip(),
+            "Day": (r.get("Day") or "").strip(),
+            "Names": (r.get("Names") or "").strip(),
+            "Total Effort": f"{comp_info.get(cid, {}).get('effort', 0.0):.4f}",
+            "Task Count": f"{comp_info.get(cid, {}).get('taskcount', 0.0):.4f}",
+        }
     manual_components_from_input, manual_loads_by_person = compute_manual_loads(comp_rows, comp_info, args.metric)
 
     models_summary: List[Dict[str,str]] = []
@@ -365,9 +384,10 @@ def main():
             manual_cids_from_input,
             penalty_weights,
             x_to_label,
+            penalty_components,
         )
         penalty_summary = "; ".join(
-            f"{cat}:{label}" if label else cat for _, cat, label, _ in sorted(acts, key=lambda t: (t[1], t[0]))
+            f"{cat}:{label}" if label else cat for _, cat, label, _, _ in sorted(acts, key=lambda t: (t[1], t[0]))
         )
 
         models_summary.append({
@@ -471,6 +491,58 @@ def main():
         for r in rows_out:
             w.writerow({k: r.get(k, "") for k in out_fields})
 
+    # Component-level penalty rollup for the chosen model
+    assignment_lookup: Dict[str, str] = {}
+    for r in comp_rows:
+        cid = (r.get("ComponentId") or "").strip()
+        person = (r.get("Assigned To") or "").strip()
+        if cid and person:
+            assignment_lookup[cid] = person
+    assignment_lookup.update(cid_to_person)
+
+    comp_penalty_totals: Dict[str, int] = defaultdict(int)
+    comp_penalty_details: Dict[str, List[str]] = defaultdict(list)
+    for _, cat, label, weight, comps in best_penalty_acts:
+        if not comps:
+            continue
+        for cid in comps:
+            if weight is not None:
+                comp_penalty_totals[cid] += weight
+            detail = cat if not label else f"{cat}:{label}"
+            if weight is not None:
+                detail += f" [w={weight}]"
+            comp_penalty_details[cid].append(detail)
+
+    with open(args.component_penalties_out, 'w', newline='', encoding='utf-8') as fh:
+        w = csv.writer(fh)
+        w.writerow([
+            "ComponentId",
+            "Week",
+            "Day",
+            "Names",
+            "TaskCount",
+            "TotalEffort",
+            "AssignedTo",
+            "PenaltyWeightTotal",
+            "Penalties",
+        ])
+        for cid in sorted(comp_penalty_details):
+            meta = comp_meta.get(cid, {})
+            w.writerow([
+                cid,
+                meta.get("Week", ""),
+                meta.get("Day", ""),
+                meta.get("Names", ""),
+                meta.get("Task Count", ""),
+                meta.get("Total Effort", ""),
+                assignment_lookup.get(cid, ""),
+                comp_penalty_totals.get(cid, 0),
+                "; ".join(comp_penalty_details.get(cid, [])),
+            ])
+
+    if comp_penalty_details:
+        print(f"Wrote component penalty rollup → {args.component_penalties_out}")
+
     # Plots (best model)
     try:
         import matplotlib.pyplot as plt
@@ -561,6 +633,7 @@ def main():
                 "Category",
                 "Label",
                 "Weight",
+                "Components",
                 "IgnoredPairsK",
                 "OverT",
                 "OverLimit",
@@ -568,9 +641,10 @@ def main():
                 "WeekTo",
                 "AdjPairs",
             ])
-            for v, cat, label, weight in sorted(best_penalty_acts, key=lambda t: (t[1], t[0])):
+            for v, cat, label, weight, comps in sorted(best_penalty_acts, key=lambda t: (t[1], t[0])):
                 K = over_t = over_lim = wfrom = wto = adj_pairs = ""
                 weight_str = "" if weight is None else str(weight)
+                comp_str = ";".join(sorted(comps)) if comps else ""
 
                 if cat == "PreferredMiss":
                     m = pref_k_re.search(label or "")
@@ -597,7 +671,7 @@ def main():
                     if m:
                         wfrom, wto = f"W{m.group(1)}", f"W{m.group(2)}"
 
-                w.writerow([v, cat, label, weight_str, K, over_t, over_lim, wfrom, wto, adj_pairs])
+                w.writerow([v, cat, label, weight_str, comp_str, K, over_t, over_lim, wfrom, wto, adj_pairs])
 
         print(f"Wrote penalty activations → {args.penalties_out}")
         print(f"Wrote cooldown debug → {args.cooldown_debug_out}")
@@ -622,10 +696,12 @@ def main():
         family_re   = re.compile(r'::family=([^:]+)')
 
         by_cat: Dict[str, List[Tuple[str,str,str]]] = {}
-        for v, cat, label, weight in best_penalty_acts:
+        for v, cat, label, weight, comps in best_penalty_acts:
             hint_parts: List[str] = []
             if weight is not None:
                 hint_parts.append(f"w={weight}")
+            if comps:
+                hint_parts.append(f"components={'+'.join(sorted(comps))}")
 
             if cat == "PreferredMiss":
                 m = pref_k_re.search(label or "")
