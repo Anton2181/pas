@@ -139,7 +139,9 @@ def read_varmap(path: Path):
     vprev_streak       = vm.get('vprev_streak_vars', {})
     vprev_nonconsec    = vm.get('vprev_nonconsec_vars', {})  # encoder now leaves this empty
     preferred_miss     = vm.get('preferred_miss_vars', {})
-    priority_coverage  = vm.get('priority_coverage_vars', {})
+    prio_cov_top = vm.get('priority_coverage_vars_top', {}) or {}
+    prio_cov_second = vm.get('priority_coverage_vars_second', {}) or {}
+    priority_coverage = vm.get('priority_coverage_vars', {}) or {**prio_cov_top, **prio_cov_second}
     effort_floor_vars  = vm.get('effort_floor_vars', {}) or {}
 
     # Geometric ladders + over-limit maps (present in the optimized encoder)
@@ -176,7 +178,7 @@ def read_varmap(path: Path):
         'RepeatOverNON': vm.get('repeat_limit_non_vars', {}),
         'BothFallback': vm.get('both_fallback_vars', {}),
         'PreferredMiss': vm.get('preferred_miss_vars', {}),
-        'PriorityCoverage': vm.get('priority_coverage_vars', {}),
+        'PriorityCoverage': priority_coverage,
         'OneTaskDay': vm.get('q_vars', {}),
         'TwoDaySoft': two_day_soft,
         'DeprioritizedPair': vm.get('deprioritized_pair_vars', {}),  # <-- NEW

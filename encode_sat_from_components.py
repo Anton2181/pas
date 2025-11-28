@@ -1981,8 +1981,6 @@ def _encode(args):
         for p, terms_p in person_effort_terms_effort.items():
             U_p = person_effort_caps_effort.get(p, 0)
             attainable = effort_floor_attainable.get(p, 0)
-            if U_p < EFFORT_FLOOR_TARGET or attainable < EFFORT_FLOOR_TARGET:
-                continue
             effort_floor_eligible.append(p)
             eligible_terms.append((p, terms_p, U_p))
 
@@ -2016,13 +2014,13 @@ def _encode(args):
             effort_floor_notes["eligible_attainable_max"] = max(
                 effort_floor_attainable.get(p, 0) for p in effort_floor_eligible
             )
-        if len(effort_floor_eligible) < len(person_effort_terms_effort):
-            missing = {
-                p: effort_floor_attainable.get(p, 0)
-                for p in person_effort_terms_effort
-                if p not in effort_floor_eligible
-            }
-            effort_floor_notes["ineligible_by_attainable"] = missing
+        below_target = {
+            p: effort_floor_attainable.get(p, 0)
+            for p in person_effort_terms_effort
+            if effort_floor_attainable.get(p, 0) < EFFORT_FLOOR_TARGET
+        }
+        if below_target:
+            effort_floor_notes["attainable_below_target"] = below_target
         if effort_floor_demand > effort_floor_supply_effort:
             effort_floor_feasible = False
             effort_floor_notes["reason"] = "insufficient_global_effort"
@@ -2044,7 +2042,7 @@ def _encode(args):
                 effort_floor_feasible = False
                 effort_floor_notes["reason"] = "feasibility_probe_failed"
 
-        if effort_floor_feasible:
+        if effort_floor_eligible:
             for p, terms_p, U_p in eligible_terms:
                 under_floor = pb.new_var()
                 pb.add_ge(
@@ -2193,6 +2191,8 @@ def _encode(args):
     top_miss_by_person: Dict[str, str] = {}
     second_any_by_person: Dict[str, str] = {}
     for p in people:
+        # Include manual + AUTO eligibility when checking coverage so pre-assigned
+        # tasks also satisfy the "at least one" requirement.
         x_top = [xv(r.cid, p) for r in comps if r.is_top and p in cand.get(r.cid, [])]
         if x_top:
             TopAny = make_or(pb, x_top)
@@ -2270,8 +2270,8 @@ def _encode(args):
 
     # Map / debug
     selectors_by_var = {v: k for k, v in pb._selmap.items()}
-    # Back-compat key "priority_coverage_vars" preserved to point to TOP
-    priority_coverage_top_alias = dict(priority_coverage_vars_top)
+    # Back-compat key "priority_coverage_vars" now aliases the HIGHEST tier per person
+    priority_coverage_combined = {**priority_coverage_vars_top, **priority_coverage_vars_second}
 
     auto_soften_notes = {
         fam: {**meta, "family_label": fam_label(fam)}
@@ -2297,7 +2297,7 @@ def _encode(args):
         "vprev_nonconsec_vars":      {},
         "preferred_miss_vars":       preferred_miss_vars,
         # Coverage maps
-        "priority_coverage_vars":           priority_coverage_top_alias,   # kept for older consumers
+        "priority_coverage_vars":           priority_coverage_combined,   # kept for older consumers (now both tiers)
         "priority_coverage_vars_top":       priority_coverage_vars_top,
         "priority_coverage_vars_second":    priority_coverage_vars_second,
         "priority_required_vars":           priority_required_vars,
@@ -2361,11 +2361,11 @@ def _encode(args):
     else:
         stats.append("Weight ladder: disabled (explicit WEIGHTS in use).")
     if EFFORT_FLOOR_TARGET > 0:
-        feas_note = "ON" if effort_floor_feasible else "SKIPPED (insufficient supply)"
+        feas_note = "ON" if effort_floor_feasible else "FLAGGED NOT FEASIBLE"
         stats.append(
             "Effort floor: "
             f"target={EFFORT_FLOOR_TARGET}, hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, "
-            f"feasible={feas_note}, eligible_people={len(effort_floor_eligible)}, "
+            f"feasible={feas_note}, applied_people={len(effort_floor_eligible)}, "
             f"demand={effort_floor_notes.get('demand', 0)}, "
             f"supply_effort={effort_floor_notes.get('supply_effort', 0)}, "
             f"supply_capped={effort_floor_notes.get('supply_capped', 0)}, "
@@ -2438,7 +2438,7 @@ def _encode(args):
     if EFFORT_FLOOR_TARGET > 0:
         stats.append(
             f"Effort floor: target={EFFORT_FLOOR_TARGET}, weight={W_EFFORT_FLOOR}, "
-            f"hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, eligible_people={len(effort_floor_eligible)}"
+            f"hard={'ON' if EFFORT_FLOOR_HARD else 'OFF'}, applied_people={len(effort_floor_eligible)}"
         )
         if effort_floor_eligible:
             stats.append("  • Eligible for effort floor: " + ", ".join(sorted(effort_floor_eligible)))
