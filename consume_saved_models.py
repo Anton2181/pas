@@ -221,6 +221,66 @@ def pick_weight_for_component(cid: str, metric: str, comp_info: Dict[str, Dict[s
     d = comp_info.get(cid, {'taskcount':1.0,'effort':1.0})
     return 1.0 if metric == 'count' else (d['taskcount'] if metric == 'taskcount' else d['effort'])
 
+
+DAY_ORDER = {
+    day: idx
+    for idx, day in enumerate(
+        [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ]
+    )
+}
+
+
+def _parse_week_num(raw: str | None) -> int:
+    if not raw:
+        return 0
+    m = re.search(r"(\d+)", raw)
+    if not m:
+        return 0
+    try:
+        return int(m.group(1))
+    except Exception:
+        return 0
+
+
+def select_direct_components(comps: List[str], comp_meta: Dict[str, Dict[str, str]]) -> List[str]:
+    """Choose the components that *faced* a penalty.
+
+    For multi-component penalties, the first chronological occurrence is treated as
+    the baseline, and every later component (by week/day ordering) is counted as
+    directly penalized. If no ordering information is available, fall back to
+    attributing the penalty to every component present.
+    """
+
+    if not comps:
+        return []
+    if len(comps) == 1:
+        return list(comps)
+
+    def order_for(cid: str) -> Tuple[int, int, str]:
+        meta = comp_meta.get(cid, {})
+        week = _parse_week_num(meta.get("Week"))
+        day_raw = (meta.get("Day") or "").strip().lower()
+        day_rank = DAY_ORDER.get(day_raw, 0)
+        return (week, day_rank, cid)
+
+    ordered = [(order_for(cid), cid) for cid in comps]
+    min_week_day = min((o[0], o[1]) for o, _ in ordered)
+    direct = [cid for o, cid in ordered if (o[0], o[1]) > min_week_day]
+
+    # If all items share the same ordering (no temporal info), attribute to all
+    # components so the penalty remains visible in the direct columns.
+    if not direct:
+        return list(comps)
+    return direct
+
 # --- NEW: pull week number, SiblingKey families, and which cids were manual in the input ---
 def extract_comp_meta(rows: List[Dict[str,str]]):
     def parse_week_num(week_label: str) -> int:
@@ -517,13 +577,12 @@ def main():
                 comp_penalty_totals[cid] += weight
             comp_penalty_details[cid].append(detail_with_weight)
 
-        # "Direct" penalties are those whose component support is confined to a
-        # single component. This captures penalties the component itself faced
-        # (e.g., repeat/cooldown/overuse) without attributing penalties that a
-        # component merely contributed to elsewhere (like a multi-component day
-        # underfill penalty).
-        if len(comps) == 1:
-            cid = comps[0]
+        # "Direct" penalties are those borne by the later occurrences in a
+        # sequence (e.g., the repeat or cooldown violators), not the baseline
+        # component that merely existed earlier in time. If we cannot order the
+        # components, attribute the penalty to all of them to keep visibility.
+        direct_cids = select_direct_components(comps, comp_meta)
+        for cid in direct_cids:
             if weight is not None:
                 comp_penalty_direct_totals[cid] += weight
             comp_penalty_direct_details[cid].append(detail_with_weight)
