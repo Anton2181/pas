@@ -42,3 +42,16 @@ def test_direct_components_respects_penalty_people() -> None:
     )
     assert direct == ["C2"]
 
+
+def test_filter_label_by_people_discards_other_penalties() -> None:
+    label = (
+        "repeat_over_geo::NON::person=Alice::family=F::t=2::limit=1; "
+        "cooldown_geo::NON::person=Bob::family=G::t=1::3; "
+        "cooldown_geo::NON::person=Alice::family=F::t=1::3"
+    )
+
+    kept = consumer.filter_label_by_people(label, {"Alice"})
+    assert "Bob" not in kept
+    assert "Alice" in kept
+    assert kept.count("person=Alice") == 2
+

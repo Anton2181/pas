@@ -293,6 +293,39 @@ def extract_penalty_people(label: str | None) -> Set[str]:
     return {m.group(1).strip() for m in PENALTY_PERSON_RE.finditer(label) if m.group(1).strip()}
 
 
+def filter_label_by_people(label: str | None, people: Set[str]) -> str:
+    """Keep only the label segments that mention allowed people.
+
+    Penalty labels can aggregate multiple independent penalty terms with different
+    people. To avoid attributing other people's penalties to a component's
+    assignee, we retain only the segments that explicitly reference the person(s)
+    we care about. If no segments match, return an empty string.
+    """
+
+    if not label:
+        return ""
+    if not people:
+        return label
+
+    kept: List[str] = []
+    matched_person = False
+    for segment in (part.strip() for part in label.split(";") if part.strip()):
+        mentioned = extract_penalty_people(segment)
+        if mentioned:
+            if mentioned & people:
+                kept.append(segment)
+                matched_person = True
+            continue
+        # Person-agnostic segments stay so generic penalties remain visible.
+        kept.append(segment)
+
+    if matched_person or not people:
+        return "; ".join(kept)
+
+    # No person-specific segments matched; drop to signal no attribution.
+    return ""
+
+
 def select_direct_components_for_penalty(
     comps: List[str],
     label: str | None,
@@ -333,6 +366,25 @@ def extract_comp_meta(rows: List[Dict[str,str]]):
         if (r.get("Assigned?","").strip().upper() == "YES") and (r.get("Assigned To","").strip()):
             manual_cids.add(cid)
     return comp_week, comp_fams, manual_cids
+
+
+def _tidy_effort(raw: str | None) -> str:
+    """Trim trailing zeros from effort-like numbers while keeping strings stable."""
+
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    try:
+        num = float(text)
+    except Exception:
+        return text
+
+    if num.is_integer():
+        return str(int(num))
+    trimmed = ("%f" % num).rstrip("0").rstrip(".")
+    return trimmed
 
 # -------------------------- Decoding & fairness ------------------------
 def decode_pairs(true_vars: List[str], x_to_label: Dict[str,str]) -> List[Tuple[str,str]]:
@@ -619,9 +671,19 @@ def main():
             assignment_lookup,
         )
         for cid in direct_cids:
+            allowed = {assignment_lookup.get(cid, "")}
+            filtered_label = filter_label_by_people(label, allowed)
+            if filtered_label:
+                detail_filtered = f"{cat}:{filtered_label}" if label else cat
+            else:
+                # Skip attribution if none of the label segments apply to this assignee.
+                continue
+
+            detail_with_weight_filtered = detail_filtered
             if weight is not None:
                 comp_penalty_direct_totals[cid] += weight
-            comp_penalty_direct_details[cid].append(detail_with_weight)
+                detail_with_weight_filtered = f"{detail_filtered} [w={weight}]"
+            comp_penalty_direct_details[cid].append(detail_with_weight_filtered)
 
     with open(args.component_penalties_out, 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
@@ -646,7 +708,7 @@ def main():
                 meta.get("Day", ""),
                 meta.get("Names", ""),
                 meta.get("Task Count", ""),
-                meta.get("Total Effort", ""),
+                _tidy_effort(meta.get("Total Effort")),
                 assignment_lookup.get(cid, ""),
                 comp_penalty_totals.get(cid, 0),
                 "; ".join(comp_penalty_details.get(cid, [])),
