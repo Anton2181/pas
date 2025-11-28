@@ -238,6 +238,9 @@ DAY_ORDER = {
 }
 
 
+PENALTY_PERSON_RE = re.compile(r"::person=([^:]+)")
+
+
 def _parse_week_num(raw: str | None) -> int:
     if not raw:
         return 0
@@ -280,6 +283,34 @@ def select_direct_components(comps: List[str], comp_meta: Dict[str, Dict[str, st
     if not direct:
         return list(comps)
     return direct
+
+
+def extract_penalty_people(label: str | None) -> Set[str]:
+    """Pull the explicitly referenced people from a penalty label."""
+
+    if not label:
+        return set()
+    return {m.group(1).strip() for m in PENALTY_PERSON_RE.finditer(label) if m.group(1).strip()}
+
+
+def select_direct_components_for_penalty(
+    comps: List[str],
+    label: str | None,
+    comp_meta: Dict[str, Dict[str, str]],
+    assignment_lookup: Dict[str, str],
+) -> List[str]:
+    """Choose direct components while respecting the penalty's targeted people.
+
+    Only components assigned to a person mentioned in the penalty label are
+    considered direct bearers of that penalty. If the label names no people,
+    fall back to the full component list.
+    """
+
+    penalty_people = extract_penalty_people(label)
+    filtered = [cid for cid in comps if not penalty_people or assignment_lookup.get(cid, "") in penalty_people]
+    if not filtered:
+        return []
+    return select_direct_components(filtered, comp_meta)
 
 # --- NEW: pull week number, SiblingKey families, and which cids were manual in the input ---
 def extract_comp_meta(rows: List[Dict[str,str]]):
@@ -581,7 +612,12 @@ def main():
         # sequence (e.g., the repeat or cooldown violators), not the baseline
         # component that merely existed earlier in time. If we cannot order the
         # components, attribute the penalty to all of them to keep visibility.
-        direct_cids = select_direct_components(comps, comp_meta)
+        direct_cids = select_direct_components_for_penalty(
+            comps,
+            label,
+            comp_meta,
+            assignment_lookup,
+        )
         for cid in direct_cids:
             if weight is not None:
                 comp_penalty_direct_totals[cid] += weight
