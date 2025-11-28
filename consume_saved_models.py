@@ -502,16 +502,31 @@ def main():
 
     comp_penalty_totals: Dict[str, int] = defaultdict(int)
     comp_penalty_details: Dict[str, List[str]] = defaultdict(list)
+    comp_penalty_direct_totals: Dict[str, int] = defaultdict(int)
+    comp_penalty_direct_details: Dict[str, List[str]] = defaultdict(list)
     for _, cat, label, weight, comps in best_penalty_acts:
         if not comps:
             continue
+        detail = cat if not label else f"{cat}:{label}"
+        if weight is not None:
+            detail_with_weight = f"{detail} [w={weight}]"
+        else:
+            detail_with_weight = detail
         for cid in comps:
             if weight is not None:
                 comp_penalty_totals[cid] += weight
-            detail = cat if not label else f"{cat}:{label}"
+            comp_penalty_details[cid].append(detail_with_weight)
+
+        # "Direct" penalties are those whose component support is confined to a
+        # single component. This captures penalties the component itself faced
+        # (e.g., repeat/cooldown/overuse) without attributing penalties that a
+        # component merely contributed to elsewhere (like a multi-component day
+        # underfill penalty).
+        if len(comps) == 1:
+            cid = comps[0]
             if weight is not None:
-                detail += f" [w={weight}]"
-            comp_penalty_details[cid].append(detail)
+                comp_penalty_direct_totals[cid] += weight
+            comp_penalty_direct_details[cid].append(detail_with_weight)
 
     with open(args.component_penalties_out, 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh)
@@ -525,6 +540,8 @@ def main():
             "AssignedTo",
             "PenaltyWeightTotal",
             "Penalties",
+            "DirectPenaltyWeight",
+            "DirectPenalties",
         ])
         for cid in sorted(comp_penalty_details):
             meta = comp_meta.get(cid, {})
@@ -538,6 +555,8 @@ def main():
                 assignment_lookup.get(cid, ""),
                 comp_penalty_totals.get(cid, 0),
                 "; ".join(comp_penalty_details.get(cid, [])),
+                comp_penalty_direct_totals.get(cid, 0),
+                "; ".join(comp_penalty_direct_details.get(cid, [])),
             ])
 
     if comp_penalty_details:
