@@ -400,14 +400,48 @@ def test_priority_miss_prefers_highest_tier(tmp_path: Path) -> None:
 
     top_labels = list(varmap.get("priority_coverage_vars_top", {}).values())
     second_labels = list(varmap.get("priority_coverage_vars_second", {}).values())
+    merged_labels = list(varmap.get("priority_coverage_vars", {}).values())
     required_labels = list(varmap.get("priority_required_vars", {}).values())
 
     assert any("person=Alex" in label for label in top_labels)
     assert not any("person=Alex" in label for label in second_labels)
     assert any("person=Blair" in label for label in second_labels)
+    assert any("person=Alex" in label for label in merged_labels)
+    assert any("person=Blair" in label for label in merged_labels)
     # The guard map should record both tiers separately
     assert any("tier=TOP" in label for label in required_labels)
     assert any("tier=SECOND" in label for label in required_labels)
+
+
+def test_effort_floor_penalizes_all_eligible_people(tmp_path: Path) -> None:
+    comps = [
+        component_row(
+            cid="C1",
+            week="Week 1",
+            day="Tuesday",
+            task_name="Light Task",
+            candidates=["Alex"],
+            effort=1.0,
+        )
+    ]
+    backend = [backend_row("Alex")]
+
+    overrides = {
+        "EFFORT_FLOOR_TARGET": 3,
+        "EFFORT_FLOOR_HARD": False,
+        "WEIGHTS": {"W_EFFORT_FLOOR": 10},
+        "AUTO_SOFTEN": {"ENABLED": False},
+        "BANNED_SIBLING_PAIRS": [],
+        "BANNED_SAME_DAY_PAIRS": [],
+    }
+
+    varmap = _load_varmap(
+        run_encoder_for_rows(tmp_path, components=comps, backend=backend, overrides=overrides, prefix="effort_floor")["map"]
+    )
+
+    floor_labels = list(varmap.get("effort_floor_vars", {}).values())
+    assert floor_labels, "Expected an effort floor selector even when the target exceeds capacity"
+    assert any("person=Alex" in label for label in floor_labels)
 
 
 def test_debug_allow_unassigned_adds_drop_vars(tmp_path: Path) -> None:

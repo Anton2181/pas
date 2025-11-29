@@ -22,7 +22,7 @@ def test_load_plans_and_scaling(tmp_path: Path) -> None:
                 {
                     "name": "scaled",
                     "scales": {"W1_COOLDOWN": 2.0},
-                    "overrides": {"WEIGHTS": {"W6_UNDER": 9}},
+                    "overrides": {"WEIGHTS": {"W_FAIR_UNDERLOAD": 9}},
                 },
             ]
         ),
@@ -35,25 +35,25 @@ def test_load_plans_and_scaling(tmp_path: Path) -> None:
     base_cfg = encoder.build_config()
     scaled = plans[1].to_overrides(base_cfg)
     assert scaled["WEIGHTS"]["W1_COOLDOWN"] == base_cfg["WEIGHTS"]["W1_COOLDOWN"] * 2
-    assert scaled["WEIGHTS"]["W6_UNDER"] == 9
+    assert scaled["WEIGHTS"]["W_FAIR_UNDERLOAD"] == 9
 
 
 def test_weight_ladder_overrides_weights() -> None:
     overrides = {
         "WEIGHT_LADDER": {
             "ENABLED": True,
-            "ORDER": ["W5", "W4", "W3"],
-            "RATIO": 100,
-            "TOP": 1_000_000,
-        }
+        "ORDER": ["W_PREFERRED_PAIR_MISS", "W_BOTH_FALLBACK", "W_FILL_TO_TWO"],
+        "RATIO": 100,
+        "TOP": 1_000_000,
+    }
     }
 
     cfg = encoder.build_config(overrides)
     weights = cfg["WEIGHTS"]
 
-    assert weights["W5"] == 1_000_000
-    assert weights["W4"] == 10_000
-    assert weights["W3"] == 100
+    assert weights["W_PREFERRED_PAIR_MISS"] == 1_000_000
+    assert weights["W_BOTH_FALLBACK"] == 10_000
+    assert weights["W_FILL_TO_TWO"] == 100
     # Default ladder entries get appended so core weights still receive values
     assert weights["W1_COOLDOWN"] > 0
     # Non-weight helper config is preserved
@@ -61,18 +61,18 @@ def test_weight_ladder_overrides_weights() -> None:
 
 
 def test_weight_ladder_anchors_to_first_weight_when_top_missing() -> None:
-    cfg = encoder.build_config({"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5", "W3"]}})
+    cfg = encoder.build_config({"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W_PREFERRED_PAIR_MISS", "W_FILL_TO_TWO"]}})
     weights = cfg["WEIGHTS"]
 
     expected_top = cfg["WEIGHT_LADDER"]["RATIO"] ** (
         len(cfg["WEIGHT_LADDER"]["ORDER"]) - 1
     )
-    assert weights["W5"] == expected_top
-    assert weights["W3"] == max(1, expected_top // cfg["WEIGHT_LADDER"]["RATIO"])
+    assert weights["W_PREFERRED_PAIR_MISS"] == expected_top
+    assert weights["W_FILL_TO_TWO"] == max(1, expected_top // cfg["WEIGHT_LADDER"]["RATIO"])
 
 
 def test_weight_ladder_requires_ratio_above_one() -> None:
-    overrides = {"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W5"], "RATIO": 1}}
+    overrides = {"WEIGHT_LADDER": {"ENABLED": True, "ORDER": ["W_PREFERRED_PAIR_MISS"], "RATIO": 1}}
 
     with pytest.raises(ValueError):
         encoder.build_config(overrides)
