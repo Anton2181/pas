@@ -99,12 +99,12 @@ DEFAULT_CONFIG = {
         #     under debug relax mode; e.g., marking a hard-to-place component as
         #     dropped. Priority tasks can be weighted separately from non-priority
         #     tasks.
-        #   * W4 – soft cost for using the “Both” expansion to assign a manual pair;
-        #     activates when a person is auto-selected for a “Both” link; e.g.,
-        #     filling both halves of a manual repeat in one step.
-        #   * W4_DPR – same-day deprioritized pair penalty; activates when a person
-        #     takes two tasks forming a deprioritized pair on the same day; e.g.,
-        #     working two incompatible tasks on Saturday.
+        #   * W_BOTH_FALLBACK – soft cost for using the “Both” expansion to assign a
+        #     manual pair; activates when a person is auto-selected for a “Both”
+        #     link; e.g., filling both halves of a manual repeat in one step.
+        #   * W_DEPRIORITIZED_PAIR – same-day deprioritized pair penalty; activates
+        #     when a person takes two tasks forming a deprioritized pair on the same
+        #     day; e.g., working two incompatible tasks on Saturday.
         #   * W_EFFORT_FLOOR – enforces/encourages ≥target effort for eligible
         #     people; activates when an eligible person could reach the target but
         #     does not; e.g., someone capable of 8 effort only gets 6.
@@ -121,12 +121,9 @@ DEFAULT_CONFIG = {
         #   * W2_COOLDOWN_INTRA – sibling-proximity guard for non-priority
         #     families; triggers when a non-priority person serves both halves of a
         #     sibling pair too closely; e.g., covering linked weeks for Family Z.
-        #   * T1C – pushes broad coverage of top-priority families; activates when
-        #     top-priority capacity goes unused; e.g., skipping a top slot to keep
-        #     someone idle.
-        #   * T2C – secondary priority coverage; activates when secondary priority
-        #     families are left empty after top coverage; e.g., leaving a second-tier
-        #     slot open.
+        #   * W_PRIORITY_MISS – highest-tier priority coverage; activates when
+        #     someone with priority eligibility never receives a matching task;
+        #     family-mode copies this per family token.
         #   * W1_REPEAT – penalizes exceeding the per-family priority repeat cap;
         #     triggers once a priority person crosses their allowed count; e.g., a
         #     second assignment to Family X when the limit is 1.
@@ -152,18 +149,18 @@ DEFAULT_CONFIG = {
         #     activates when AUTO appears on a weekday with <2 tasks.
         #   * W_AUTO_DAY_SUNDAY – same as W_AUTO_DAY but scoped to Sunday,
         #     letting you tune weekend behavior separately.
-        #   * W3 – “fill to two” nudger on manual-only days; activates when a day is
-        #     short-staffed; e.g., only one manual assignment on a day that expects
-        #     two.
-        #   * W5 – preferred-pair miss; activates when a feasible preferred pair is
-        #     not scheduled; e.g., two people who like to partner are assigned
-        #     separately.
-        #   * W6_UNDER – fairness ladder for under-loaded people; activates when a
-        #     person receives less than peers; e.g., far fewer assignments than the
-        #     median.
-        #   * W6_OVER – fairness ladder for over-loaded people; activates when a
-        #     person receives more than peers; e.g., significantly above-average
-        #     assignment counts.
+        #   * W_FILL_TO_TWO – “fill to two” nudger on manual-only days; activates
+        #     when a day is short-staffed; e.g., only one manual assignment on a day
+        #     that expects two.
+        #   * W_PREFERRED_PAIR_MISS – preferred-pair miss; activates when a feasible
+        #     preferred pair is not scheduled; e.g., two people who like to partner
+        #     are assigned separately.
+        #   * W_FAIR_UNDERLOAD – fairness ladder for under-loaded people; activates
+        #     when a person receives less than peers; e.g., far fewer assignments
+        #     than the median.
+        #   * W_FAIR_OVERLOAD – fairness ladder for over-loaded people; activates
+        #     when a person receives more than peers; e.g., significantly
+        #     above-average assignment counts.
         "ENABLED": True,
         "ORDER": [
             "W_DEBUG_UNASSIGNED_PRIORITY",
@@ -180,17 +177,15 @@ DEFAULT_CONFIG = {
             "W_AUTO_DAY",
             "W1_COOLDOWN",
             "W2_COOLDOWN",
-            "W4_DPR",
+            "W_DEPRIORITIZED_PAIR",
 
-            "T1C",
-            "T2C",
             "W_AUTO_DAY_SUNDAY",
             "W_SUNDAY_TWO_DAY",
-            "W4",
-            "W6_OVER",
-            "W3",
-            "W5",
-            "W6_UNDER",
+            "W_BOTH_FALLBACK",
+            "W_FAIR_OVERLOAD",
+            "W_FILL_TO_TWO",
+            "W_PREFERRED_PAIR_MISS",
+            "W_FAIR_UNDERLOAD",
 
         ],
         "RATIO": 10,
@@ -1024,14 +1019,16 @@ def _encode(args):
     W1_STREAK = weight("W1_STREAK")
     W2_STREAK = weight("W2_STREAK")
 
-    W3, W4, W5 = weight("W3"), weight("W4"), weight("W5")
-    W4_DPR = weight("W4_DPR", default=W4)
+    W_FILL_TO_TWO = weight("W_FILL_TO_TWO")
+    W_BOTH_FALLBACK = weight("W_BOTH_FALLBACK")
+    W_PREFERRED_PAIR_MISS = weight("W_PREFERRED_PAIR_MISS")
+    W_DEPRIORITIZED_PAIR = weight("W_DEPRIORITIZED_PAIR", default=W_BOTH_FALLBACK)
     W_AUTO_DAY = weight("W_AUTO_DAY")
     W_AUTO_DAY_SUNDAY = weight("W_AUTO_DAY_SUNDAY", default=W_AUTO_DAY)
 
-    W6_OVER, W6_UNDER, T1C = weight("W6_OVER"), weight("W6_UNDER"), weight("T1C")
-    T2C = weight("T2C", default=max(1, T1C // 10))
-    W_PRIORITY_MISS = weight("W_PRIORITY_MISS", default=0)
+    W_FAIR_OVERLOAD = weight("W_FAIR_OVERLOAD")
+    W_FAIR_UNDERLOAD = weight("W_FAIR_UNDERLOAD")
+    W_PRIORITY_MISS = weight("W_PRIORITY_MISS")
     SUNDAY_TWO_DAY_SOFT = bool(CONFIG.get("SUNDAY_TWO_DAY_SOFT", False))
     TWO_DAY_SOFT_ALL = bool(CONFIG.get("TWO_DAY_SOFT_ALL", False))
     FAIR_MEAN_MULTIPLIER = float(CONFIG.get("FAIR_MEAN_MULTIPLIER", 1.0))
@@ -1785,7 +1782,7 @@ def _encode(args):
             continue
         v_fill = pb.new_var()
         pb.add_ge([(1, xi) for (xi, _tc) in X_all] + [(-2, Y), (1, v_fill)], 0)
-        penalties.append((W3, v_fill))
+        penalties.append((W_FILL_TO_TWO, v_fill))
         register_support(v_fill, [xi for (xi, _tc) in X_all])
 
     # ---------- Tier 4 ----------
@@ -1794,7 +1791,7 @@ def _encode(args):
         if (cid, person) not in x_index:
             continue
         xvar = xv(cid, person)
-        penalties.append((W4, xvar))
+        penalties.append((W_BOTH_FALLBACK, xvar))
         both_fallback_vars[xvar] = f"both_fallback::{cid}::{person}"
 
     # -------------------- Deprioritized pair penalties --------------------
@@ -1806,7 +1803,7 @@ def _encode(args):
                     if p not in cand.get(a, []) or p not in cand.get(b, []):
                         continue
                     z = make_and(pb, xv(a, p), xv(b, p))
-                    penalties.append((W4_DPR, z))
+                    penalties.append((W_DEPRIORITIZED_PAIR, z))
                     deprioritized_pair_vars[z] = (
                         f"deprioritized_pair::{d}::W{w}::{p}::{a}::{b}"
                     )
@@ -1844,7 +1841,7 @@ def _encode(args):
         z = pb.new_var()  # 1 - PrefOK
         pb.add_eq([(1, z), (1, PrefOK)], 1)
         K = len(unordered_seen)
-        penalties.append((W5 * K, z))
+        penalties.append((W_PREFERRED_PAIR_MISS * K, z))
         group_label = f"{A.week_label}/{A.day}/" + "+".join(sorted(A.names))
         preferred_miss_vars[z] = f"preferred_pair_missed::group={group_label}::K={K}"
         register_support(z, [PrefOK])
@@ -1992,7 +1989,7 @@ def _encode(args):
         for idx, t in enumerate(over_thresholds, start=1):
             b_over = pb.new_var()
             pb.add_le(terms_p + [(-U_p, b_over)], t - 1)
-            penalties.append((W6_OVER * (REPEAT_OVER_GEO ** (idx - 1)), b_over))
+            penalties.append((W_FAIR_OVERLOAD * (REPEAT_OVER_GEO ** (idx - 1)), b_over))
 
         # -------- UNDER-load ladder
         under_candidates = sorted({
@@ -2005,7 +2002,7 @@ def _encode(args):
             b_under = pb.new_var()
             # S_p + t * b_under >= t
             pb.add_ge(terms_p + [(t, b_under)], t)
-            penalties.append((W6_UNDER * (REPEAT_OVER_GEO ** (idx - 1)), b_under))
+            penalties.append((W_FAIR_UNDERLOAD * (REPEAT_OVER_GEO ** (idx - 1)), b_under))
 
     # ---------- Effort floor (eligible people only) ----------
     effort_floor_vars: Dict[str, str] = {}
@@ -2253,19 +2250,17 @@ def _encode(args):
 
     if PRIORITY_COVERAGE_MODE == "global":
         # TOP (independent)
-        top_weight = W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C
         for p in sorted(top_miss_by_person):
             z = top_miss_by_person[p]
-            penalties.append((top_weight, z))
+            penalties.append((W_PRIORITY_MISS, z))
             priority_coverage_vars_top[z] = f"priority_coverage_TOP::GLOBAL::person={p}"
 
         # SECOND (only when no TOP eligibility at all)
-        second_weight = W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T2C
         for p in sorted(second_any_by_person):
             SecondAny = second_any_by_person[p]
             z2 = pb.new_var()
             pb.add_eq([(1, z2), (1, SecondAny)], 1)
-            penalties.append((second_weight, z2))
+            penalties.append((W_PRIORITY_MISS, z2))
             priority_coverage_vars_second[z2] = f"priority_coverage_SECOND::GLOBAL::person={p}"
             priority_required_vars[z2] = f"priority_required::tier=SECOND::person={p}"
 
@@ -2287,7 +2282,7 @@ def _encode(args):
                     TopAny_pf = make_or(pb, x_top_pf)
                     z = pb.new_var()
                     pb.add_eq([(1, z), (1, TopAny_pf)], 1)
-                    penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C, z))
+                    penalties.append((W_PRIORITY_MISS, z))
                     priority_coverage_vars_top[z] = f"priority_coverage_TOP::FAMILY::person={p}::family={fam}"
                 else:
                     x_second_pf = [xv(r.cid, p)
@@ -2298,7 +2293,7 @@ def _encode(args):
                     SecondAny_pf = make_or(pb, x_second_pf)
                     z2 = pb.new_var()
                     pb.add_eq([(1, z2), (1, SecondAny_pf)], 1)
-                    penalties.append((W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T2C, z2))
+                    penalties.append((W_PRIORITY_MISS, z2))
                     priority_coverage_vars_second[z2] = f"priority_coverage_SECOND::FAMILY::person={p}::family={fam}"
                     priority_required_vars[z2] = f"priority_required::tier=SECOND::person={p}::family={fam}"
 
@@ -2443,14 +2438,13 @@ def _encode(args):
         "Repeat limits (per person × family across horizon):",
         f"  • PRIORITY limit={LIMIT_PRI} (log-ladder soft at W1, base {REPEAT_OVER_GEO} above limit, gated on auto-PRI within family).",
         f"  • NON-PRIORITY limit={LIMIT_NON} (log-ladder soft at W2, base {REPEAT_OVER_GEO} above limit, gated on auto-NON within family).",
-        f"Tier-3 manual-only 1-task day discourage: W3={W3}.",
-        f"Tier-4 ‘Both’ fallback per-use: W4={W4}.",
-        f"Tier-5 preferred-pair missed: W5={W5}.",
-        f"Tier-6 across-horizon total-effort fairness (log-ladder): W6_OVER={W6_OVER}, W6_UNDER={W6_UNDER}.",
+        f"Tier-3 manual-only 1-task day discourage: W_FILL_TO_TWO={W_FILL_TO_TWO}.",
+        f"Tier-4 ‘Both’ fallback per-use: W_BOTH_FALLBACK={W_BOTH_FALLBACK}.",
+        f"Tier-5 preferred-pair missed: W_PREFERRED_PAIR_MISS={W_PREFERRED_PAIR_MISS}.",
+        f"Tier-6 across-horizon total-effort fairness (log-ladder): W_FAIR_OVERLOAD={W_FAIR_OVERLOAD}, W_FAIR_UNDERLOAD={W_FAIR_UNDERLOAD}.",
         f"Tier-6 fairness mean: base={mean_base}, scaled={mean_scaled}, target(with delta)={mean_target} "
         f"(FAIR_MEAN_MULTIPLIER={FAIR_MEAN_MULTIPLIER}, FAIR_OVER_START_DELTA={FAIR_OVER_START_DELTA})",
-        f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): TOP weight={W_PRIORITY_MISS if W_PRIORITY_MISS > 0 else T1C}, "
-        f"T2C={T2C} (SECOND; ignored if TOP already).",
+        f"Priority coverage ({PRIORITY_COVERAGE_MODE.upper()}): weight={W_PRIORITY_MISS} (SECOND ignored if TOP already).",
         f"SiblingKey source: {'Extractor SiblingKey' if used_siblingkey else 'Synthesized from backend cooldown graph (fallback)'}",
         f"#vars (approx): {len(pb.vars)}  |  #constraints: {len(pb.constraints)}  |  obj terms: {len(pb.objective_terms)}",
     ])

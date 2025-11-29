@@ -68,7 +68,7 @@ python3 run_solver.py --opb schedule.opb --metric effort --log logs/solver.log
 - Follow up with `python3 summarize_results.py` to print the headline objective, penalty counts, and load extremes pulled from the refreshed CSVs. This keeps "what's our current best?" checks to a single command.
 - Use `python3 run_weight_experiments.py --plans plans.json` when you want to try multiple weight tweaks in parallel. Each plan writes artifacts under `experiments/<plan>/` (including per-plan bar/Lorenz charts), and the harness now emits cross-plan penalty/load bar charts plus a best-of summary (fewest penalties and most even load). The summary charts are written even when a plan times out with no model so you always have a visual record of what ran. The repository ships with a starter `plans.json` that keeps every weight type present while pushing on different axes:
   - `baseline_full`: control run with the checked-in weights spelled out explicitly.
-  - `priority_heavy` / `priority_light`: scale `T1C`/`T2C` and `W_PRIORITY_MISS` up or down while keeping other tiers intact.
+  - `priority_heavy` / `priority_light`: scale `W_PRIORITY_MISS` up or down while keeping other tiers intact.
   - `cooldown_soft` / `cooldown_strict`: relax or harden both inter- and intra-week cooldown ladders without dropping any penalties.
   - `fairness_push`: bump Tier-6 to spread work more aggressively.
   - `two_day_hard`: disable the soft two-day modes entirely (hard requirement) while keeping weights defined.
@@ -108,5 +108,5 @@ python3 run_solver.py --opb schedule.opb --log logs/solver.log
 ## Tuning tips
 
 1. Check `stats.txt` for the total number of cooldown/repeat selectors per tier. If most of them belong to non-scarce families, widen candidate pools or bump the scarcity thresholds.
-2. Inspect `loads_by_person.csv` to ensure fairness ladders are not fighting unavoidable manual assignments. When necessary, temporarily disable Tier-6 by setting `W6_OVER = W6_UNDER = 0` and re-running the encoder.
+2. Inspect `loads_by_person.csv` to ensure fairness ladders are not fighting unavoidable manual assignments. When necessary, temporarily disable Tier-6 by setting `W_FAIR_OVERLOAD = W_FAIR_UNDERLOAD = 0` and re-running the encoder.
 3. Use `varmap.json.cooldown_gate_info` to confirm every cooldown penalty had an AUTO gate (either current or previous week). If not, the component metadata might be missing `Assigned? = YES` entries for manual tasks.
